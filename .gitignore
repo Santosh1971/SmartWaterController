@@ -1,0 +1,12 @@
+# PlatformIO
+.pio/
+.pioenv/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Credentials
+include/Credentials.h

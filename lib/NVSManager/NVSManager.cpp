@@ -1,0 +1,210 @@
+#include "NVSManager.h"
+#include <nvs_flash.h>
+
+void NVSManager::begin() {
+    // Initialize NVS flash partition
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        Serial.println("[NVS] Erasing flash...");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    // Create namespace by opening in write mode once
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.end();
+    Serial.println("[NVS] Initialized OK");
+}
+
+// ---------- Cycles ----------
+void NVSManager::saveCycles(Cycle* cycles, uint8_t count) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    JsonDocument doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (uint8_t i = 0; i < count; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["id"]      = cycles[i].id;
+        o["name"]    = cycles[i].name;
+        o["sh"]      = cycles[i].startHour;
+        o["sm"]      = cycles[i].startMinute;
+        o["eh"]      = cycles[i].endHour;
+        o["em"]      = cycles[i].endMinute;
+        o["mode"]    = (int)cycles[i].mode;
+        o["liters"]  = cycles[i].targetLiters;
+        o["enabled"] = cycles[i].enabled;
+    }
+    String out; serializeJson(doc, out);
+    _prefs.putString("cycles", out);
+    _prefs.putUChar("cycle_count", count);
+    _prefs.end();
+    Serial.printf("[NVS] Saved %d cycles\n", count);
+}
+
+uint8_t NVSManager::loadCycles(Cycle* cycles) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    uint8_t count = _prefs.getUChar("cycle_count", 0);
+    if (count == 0) { _prefs.end(); return 0; }
+    String json = _prefs.getString("cycles", "[]");
+    _prefs.end();
+    JsonDocument doc;
+    if (deserializeJson(doc, json) != DeserializationError::Ok) return 0;
+    JsonArray arr = doc.as<JsonArray>();
+    uint8_t i = 0;
+    for (JsonObject o : arr) {
+        if (i >= MAX_CYCLES) break;
+        cycles[i].id           = o["id"];
+        strlcpy(cycles[i].name, o["name"] | "", sizeof(cycles[i].name));
+        cycles[i].startHour    = o["sh"];
+        cycles[i].startMinute  = o["sm"];
+        cycles[i].endHour      = o["eh"];
+        cycles[i].endMinute    = o["em"];
+        cycles[i].mode         = (OperationMode)(int)o["mode"];
+        cycles[i].targetLiters = o["liters"];
+        cycles[i].enabled      = o["enabled"];
+        i++;
+    }
+    Serial.printf("[NVS] Loaded %d cycles\n", i);
+    return i;
+}
+
+// ---------- WiFi ----------
+void NVSManager::saveWiFi(const char* ssid, const char* pass) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putString("wifi_ssid", ssid);
+    _prefs.putString("wifi_pass", pass);
+    _prefs.end();
+    Serial.printf("[NVS] WiFi saved: %s\n", ssid);
+}
+
+bool NVSManager::loadWiFi(char* ssid, char* pass) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    String s = _prefs.getString("wifi_ssid", "");
+    String p = _prefs.getString("wifi_pass", "");
+    _prefs.end();
+    if (s.isEmpty()) return false;
+    strlcpy(ssid, s.c_str(), 64);
+    strlcpy(pass, p.c_str(), 64);
+    return true;
+}
+
+// ---------- MQTT ----------
+void NVSManager::saveMQTT(const char* broker, uint16_t port,
+                           const char* user, const char* pass) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putString("mqtt_broker", broker);
+    _prefs.putUShort("mqtt_port",   port);
+    _prefs.putString("mqtt_user",   user);
+    _prefs.putString("mqtt_pass",   pass);
+    _prefs.end();
+    Serial.printf("[NVS] MQTT saved: %s:%d\n", broker, port);
+}
+
+bool NVSManager::loadMQTT(char* broker, uint16_t& port,
+                           char* user, char* pass) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    String b = _prefs.getString("mqtt_broker", "");
+    port     = _prefs.getUShort("mqtt_port",   1883);
+    String u = _prefs.getString("mqtt_user",   "");
+    String p = _prefs.getString("mqtt_pass",   "");
+    _prefs.end();
+    if (b.isEmpty()) return false;
+    strlcpy(broker, b.c_str(), 128);
+    strlcpy(user,   u.c_str(), 64);
+    strlcpy(pass,   p.c_str(), 64);
+    return true;
+}
+
+// ---------- Running State ----------
+void NVSManager::saveRunningState(const RunningState& s) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putBool("rs_active",   s.active);
+    _prefs.putBool("rs_paused",   s.paused);
+    _prefs.putUChar("rs_cycleId", s.cycleId);
+    _prefs.putFloat("rs_liters",  s.litersDelivered);
+    _prefs.putULong("rs_start",   s.startUnix);
+    _prefs.putString("rs_by",     s.startedBy);
+    _prefs.end();
+}
+
+bool NVSManager::loadRunningState(RunningState& s) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    s.active          = _prefs.getBool("rs_active",   false);
+    s.paused          = _prefs.getBool("rs_paused",   false);
+    s.cycleId         = _prefs.getUChar("rs_cycleId", 0);
+    s.litersDelivered = _prefs.getFloat("rs_liters",  0.0f);
+    s.startUnix       = _prefs.getULong("rs_start",   0);
+    String by         = _prefs.getString("rs_by",     "auto");
+    strlcpy(s.startedBy, by.c_str(), sizeof(s.startedBy));
+    _prefs.end();
+    return s.active;
+}
+
+void NVSManager::clearRunningState() {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putBool("rs_active", false);
+    _prefs.putBool("rs_paused", false);
+    _prefs.end();
+}
+
+// ---------- History ----------
+void NVSManager::addHistoryEntry(const HistoryEntry& entry) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    uint8_t count = _prefs.getUChar("hist_count", 0);
+    String key    = "h_" + String(count % HISTORY_MAX_ENTRIES);
+    JsonDocument doc;
+    doc["ts"]     = entry.timestamp;
+    doc["cid"]    = entry.cycleId;
+    doc["name"]   = entry.cycleName;
+    doc["mode"]   = (int)entry.mode;
+    doc["liters"] = entry.litersDelivered;
+    doc["dur"]    = entry.durationSeconds;
+    doc["status"] = entry.status;
+    String out; serializeJson(doc, out);
+    _prefs.putString(key.c_str(), out);
+    _prefs.putUChar("hist_count", count + 1);
+    _prefs.end();
+}
+
+uint8_t NVSManager::getHistory(HistoryEntry* entries, uint8_t maxCount) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    uint8_t total = _prefs.getUChar("hist_count", 0);
+    uint8_t fetch = min(total, maxCount);
+    uint8_t start = (total > HISTORY_MAX_ENTRIES) ? total % HISTORY_MAX_ENTRIES : 0;
+    for (uint8_t i = 0; i < fetch; i++) {
+        uint8_t idx = (start + i) % HISTORY_MAX_ENTRIES;
+        String key  = "h_" + String(idx);
+        String json = _prefs.getString(key.c_str(), "{}");
+        JsonDocument doc;
+        if (deserializeJson(doc, json) != DeserializationError::Ok) continue;
+        entries[i].timestamp       = doc["ts"];
+        entries[i].cycleId         = doc["cid"];
+        strlcpy(entries[i].cycleName, doc["name"] | "", 32);
+        entries[i].mode            = (OperationMode)(int)doc["mode"];
+        entries[i].litersDelivered = doc["liters"];
+        entries[i].durationSeconds = doc["dur"];
+        strlcpy(entries[i].status, doc["status"] | "", 16);
+    }
+    _prefs.end();
+    return fetch;
+}
+
+// ---------- Calibration ----------
+void NVSManager::saveCalibration(uint32_t ppl) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putULong("flow_cal", ppl);
+    _prefs.end();
+}
+
+uint32_t NVSManager::loadCalibration() {
+    _prefs.begin(NVS_NAMESPACE, false);
+    uint32_t val = _prefs.getULong("flow_cal", DEFAULT_PULSES_PER_LITER);
+    _prefs.end();
+    return val;
+}
+
+// ---------- Factory Reset ----------
+void NVSManager::factoryReset() {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.clear();
+    _prefs.end();
+    Serial.println("[NVS] Factory reset done");
+}
