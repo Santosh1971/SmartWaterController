@@ -11,7 +11,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  String _connectionStatus = 'Connecting...';
+  String _status = 'Connecting...';
 
   @override
   void initState() {
@@ -20,316 +20,470 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _connect() async {
-    setState(() => _connectionStatus = 'Connecting to broker...');
-    final mqtt = ref.read(mqttServiceProvider);
-    final ok   = await mqtt.connect();
-    setState(() => _connectionStatus = ok ? 'Waiting for device...' : 'Broker unreachable');
+    setState(() => _status = 'Connecting to broker...');
+    final ok = await ref.read(mqttServiceProvider).connect();
+    setState(() => _status = ok ? 'Waiting for device...' : 'Connection failed — retry');
   }
 
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(deviceStatusProvider);
-    final mqtt        = ref.read(mqttServiceProvider);
+    final mqtt = ref.read(mqttServiceProvider);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        title: const Text('Smart Water Controller'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: const Icon(Icons.menu, color: Colors.black87),
+        title: const Text('Dashboard',
+            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+        centerTitle: true,
         actions: [
-          statusAsync.maybeWhen(
-            data: (s) => Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Icon(
-                s.mqttConnected ? Icons.cloud_done : Icons.cloud_off,
-                color: s.mqttConnected ? Colors.green : Colors.red,
-              ),
-            ),
-            orElse: () => const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Icon(Icons.cloud_off, color: Colors.grey),
-            ),
+          IconButton(
+            icon: const Icon(Icons.notifications_outlined, color: Colors.black87),
+            onPressed: () {},
           ),
         ],
       ),
       body: statusAsync.maybeWhen(
-        data: (s) => _buildDashboard(context, s, mqtt),
-        orElse: () => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.water_drop, size: 64, color: Colors.blue),
-              const SizedBox(height: 24),
-              Text(_connectionStatus,
-                   style: const TextStyle(fontSize: 16, color: Colors.grey)),
-              const SizedBox(height: 16),
-              const CircularProgressIndicator(),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _connect,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+        data: (s) => _buildDashboard(s, mqtt),
+        orElse: () => _buildLoading(),
       ),
     );
   }
 
-  Widget _buildDashboard(BuildContext context, DeviceStatus s, MqttService mqtt) {
+  Widget _buildLoading() => Center(
+    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      const Icon(Icons.water_drop_outlined, size: 64, color: Color(0xFF2196F3)),
+      const SizedBox(height: 24),
+      Text(_status, style: const TextStyle(color: Colors.grey, fontSize: 16)),
+      const SizedBox(height: 16),
+      const CircularProgressIndicator(color: Color(0xFF2196F3)),
+      const SizedBox(height: 24),
+      ElevatedButton.icon(
+        onPressed: _connect,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
+        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+      ),
+    ]),
+  );
+
+  Widget _buildDashboard(DeviceStatus s, MqttService mqtt) {
     return RefreshIndicator(
       onRefresh: () async => _connect(),
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Device Connected Banner
           _DeviceBanner(status: s),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+
+          // Pump Status + Today's Progress
           Row(children: [
-            Expanded(child: _PumpCard(status: s)),
+            Expanded(child: _PumpStatusCard(status: s)),
             const SizedBox(width: 12),
             Expanded(child: _ProgressCard(status: s)),
           ]),
           const SizedBox(height: 12),
+
+          // Next Cycle Row
+          Row(children: [
+            Expanded(child: _InfoCard(
+              icon: Icons.access_time,
+              iconColor: const Color(0xFF2196F3),
+              label: 'Next Cycle',
+              value: s.cycleActive ? 'Running' : '--:--',
+              sub: '',
+            )),
+            const SizedBox(width: 12),
+            Expanded(child: _InfoCard(
+              icon: Icons.water_drop,
+              iconColor: const Color(0xFF2196F3),
+              label: 'Next Cycle Detail',
+              value: '${s.litersDelivered.toStringAsFixed(1)} L',
+              sub: '',
+            )),
+          ]),
+          const SizedBox(height: 12),
+
+          // Active Cycle Card
           if (s.cycleActive) ...[
             _ActiveCycleCard(status: s, mqtt: mqtt),
             const SizedBox(height: 12),
           ],
+
+          // Today's Summary
           _SummaryCard(status: s),
           const SizedBox(height: 12),
-          _DeviceInfoCard(status: s),
+
+          // Last Cycle
+          _LastCycleCard(status: s),
         ],
       ),
     );
   }
 }
 
+// ── Device Banner ──────────────────────────────────────────
 class _DeviceBanner extends StatelessWidget {
   final DeviceStatus status;
   const _DeviceBanner({required this.status});
+
   @override
   Widget build(BuildContext context) {
     final online = status.mqttConnected;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: online ? Colors.green.shade50 : Colors.red.shade50,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: online ? Colors.green : Colors.red),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Row(children: [
         Icon(online ? Icons.wifi : Icons.wifi_off,
-             color: online ? Colors.green : Colors.red),
-        const SizedBox(width: 10),
+             color: online ? const Color(0xFF4CAF50) : Colors.red, size: 28),
+        const SizedBox(width: 12),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(online ? 'Device Connected' : 'Device Offline',
                style: TextStyle(
-                 fontWeight: FontWeight.bold,
-                 color: online ? Colors.green.shade800 : Colors.red.shade800)),
-          Text(status.deviceId.isEmpty ? '—' : status.deviceId,
-               style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                 fontWeight: FontWeight.w600, fontSize: 15,
+                 color: online ? const Color(0xFF4CAF50) : Colors.red)),
+          Text(status.deviceId.isEmpty ? 'Searching...' : status.deviceId,
+               style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
         const Spacer(),
-        if (online) Text('${status.wifiRssi} dBm',
-            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8)),
+          child: const Icon(Icons.router, color: Colors.grey, size: 28)),
       ]),
     );
   }
 }
 
-class _PumpCard extends StatelessWidget {
+// ── Pump Status Card ──────────────────────────────────────
+class _PumpStatusCard extends StatelessWidget {
   final DeviceStatus status;
-  const _PumpCard({required this.status});
+  const _PumpStatusCard({required this.status});
+
   @override
   Widget build(BuildContext context) {
     final on = status.pumpOn;
-    return Card(
-      color: on ? Colors.green.shade50 : Colors.grey.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          Icon(Icons.water_drop, size: 40, color: on ? Colors.green : Colors.grey),
-          const SizedBox(height: 8),
-          Text('Pump', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-          Text(on ? 'ON' : 'OFF',
-               style: TextStyle(
-                 fontSize: 22, fontWeight: FontWeight.bold,
-                 color: on ? Colors.green : Colors.grey.shade700)),
-          const SizedBox(height: 4),
-          Text(status.rtcTime, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ]),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
       ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Pump Status',
+            style: TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 8),
+        Center(
+          child: Icon(Icons.settings_input_component,
+              size: 56,
+              color: on ? const Color(0xFFFF9800) : Colors.grey.shade400),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(on ? 'ON' : 'OFF',
+              style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.bold,
+                color: on ? const Color(0xFF4CAF50) : Colors.grey)),
+        ),
+        if (on) ...[
+          const SizedBox(height: 4),
+          Center(
+            child: Text('Since ${status.rtcTime}',
+                style: const TextStyle(color: Colors.grey, fontSize: 11))),
+        ],
+      ]),
     );
   }
 }
 
+// ── Progress Ring Card ────────────────────────────────────
 class _ProgressCard extends StatelessWidget {
   final DeviceStatus status;
   const _ProgressCard({required this.status});
+
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          const Icon(Icons.show_chart, size: 40, color: Colors.blue),
-          const SizedBox(height: 8),
-          Text('Delivered', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-          Text('${status.litersDelivered.toStringAsFixed(1)} L',
-               style: const TextStyle(
-                 fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue)),
-          const SizedBox(height: 4),
-          Text(status.rtcDate, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ]),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
       ),
+      child: Column(children: [
+        const Text('Today\'s Progress',
+            style: TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: 90, height: 90,
+          child: Stack(alignment: Alignment.center, children: [
+            CircularProgressIndicator(
+              value: status.litersDelivered / 200,
+              strokeWidth: 8,
+              backgroundColor: Colors.grey.shade200,
+              color: const Color(0xFF2196F3),
+            ),
+            Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('${status.litersDelivered.toStringAsFixed(1)}',
+                  style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold,
+                    color: Colors.black87)),
+              const Text('Liters',
+                  style: TextStyle(fontSize: 10, color: Colors.grey)),
+            ]),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        Text('${((status.litersDelivered / 200) * 100).toStringAsFixed(0)}% of Daily Usage',
+            style: const TextStyle(color: Colors.grey, fontSize: 11)),
+      ]),
     );
   }
 }
 
+// ── Info Card ─────────────────────────────────────────────
+class _InfoCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label, value, sub;
+  const _InfoCard({required this.icon, required this.iconColor,
+                   required this.label, required this.value, required this.sub});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Row(children: [
+        Icon(icon, color: iconColor, size: 22),
+        const SizedBox(width: 8),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+          Text(value, style: const TextStyle(
+              fontWeight: FontWeight.bold, color: Color(0xFF2196F3), fontSize: 14)),
+          if (sub.isNotEmpty)
+            Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+        ])),
+      ]),
+    );
+  }
+}
+
+// ── Active Cycle Card ─────────────────────────────────────
 class _ActiveCycleCard extends StatelessWidget {
   final DeviceStatus status;
-  final MqttService  mqtt;
+  final MqttService mqtt;
   const _ActiveCycleCard({required this.status, required this.mqtt});
+
   @override
   Widget build(BuildContext context) {
     final paused = status.cyclePaused;
-    return Card(
-      color: Colors.blue.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.loop, color: Colors.blue),
-            const SizedBox(width: 8),
-            Text('Cycle ${status.cycleId} Running',
-                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: paused ? Colors.orange : Colors.blue,
-                borderRadius: BorderRadius.circular(12)),
-              child: Text(paused ? 'PAUSED' : 'RUNNING',
-                   style: const TextStyle(color: Colors.white, fontSize: 12)),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Text('${status.litersDelivered.toStringAsFixed(1)} L delivered',
-               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: paused
-                    ? () => mqtt.resumeCycle()
-                    : () => mqtt.pauseCycle(),
-                icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-                label: Text(paused ? 'Resume' : 'Pause'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () => mqtt.stopCycle(),
-                icon: const Icon(Icons.stop, color: Colors.white),
-                label: const Text('Stop', style: TextStyle(color: Colors.white)),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              ),
-            ),
-          ]),
-        ]),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF4CAF50),
+        borderRadius: BorderRadius.circular(12),
       ),
+      child: Column(children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            const Icon(Icons.loop, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Text('Active Cycle — ${paused ? "Paused" : "Running"}',
+                style: const TextStyle(color: Colors.white,
+                    fontWeight: FontWeight.bold)),
+          ]),
+        ),
+        // Body
+        Container(
+          margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8)),
+          child: Column(children: [
+            Row(children: [
+              _CycleDetailItem(label: 'Start Time', value: status.rtcTime),
+              _CycleDetailItem(label: 'End Time', value: '--:--'),
+              _CycleDetailItem(label: 'Target', value: '--'),
+            ]),
+            const Divider(height: 16),
+            Row(children: [
+              _CycleDetailItem(
+                  label: 'Delivered',
+                  value: '${status.litersDelivered.toStringAsFixed(1)} L',
+                  valueColor: const Color(0xFF2196F3)),
+              _CycleDetailItem(label: 'Remaining', value: '-- L',
+                  valueColor: const Color(0xFFFF9800)),
+              _CycleDetailItem(label: 'Progress', value: '--%',
+                  valueColor: const Color(0xFF4CAF50)),
+            ]),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: 0.42,
+              backgroundColor: Colors.grey.shade200,
+              color: const Color(0xFF4CAF50),
+              minHeight: 6,
+            ),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: paused ? () => mqtt.resumeCycle()
+                                    : () => mqtt.pauseCycle(),
+                  icon: Icon(paused ? Icons.play_arrow : Icons.pause, size: 18),
+                  label: Text(paused ? 'Resume' : 'Pause'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF4CAF50),
+                    side: const BorderSide(color: Color(0xFF4CAF50))),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => mqtt.stopCycle(),
+                  icon: const Icon(Icons.stop, size: 18, color: Colors.white),
+                  label: const Text('STOP CYCLE',
+                      style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red),
+                ),
+              ),
+            ]),
+          ]),
+        ),
+      ]),
     );
   }
 }
 
+class _CycleDetailItem extends StatelessWidget {
+  final String label, value;
+  final Color? valueColor;
+  const _CycleDetailItem({required this.label, required this.value,
+                           this.valueColor});
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(children: [
+      Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+      const SizedBox(height: 2),
+      Text(value, style: TextStyle(
+          fontWeight: FontWeight.bold, fontSize: 13,
+          color: valueColor ?? Colors.black87)),
+    ]),
+  );
+}
+
+// ── Summary Card ──────────────────────────────────────────
 class _SummaryCard extends StatelessWidget {
   final DeviceStatus status;
   const _SummaryCard({required this.status});
+
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text("Today's Summary",
-               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 12),
-          Row(children: [
-            _SummaryItem(icon: Icons.water,
-              label: 'Total Water',
-              value: '${status.litersDelivered.toStringAsFixed(1)} L',
-              color: Colors.blue),
-            _SummaryItem(icon: Icons.person,
-              label: 'Started By',
-              value: status.startedBy.isEmpty ? '—' : status.startedBy,
-              color: Colors.green),
-            _SummaryItem(icon: Icons.network_wifi,
-              label: 'Signal',
-              value: '${status.wifiRssi} dBm',
-              color: Colors.orange),
-          ]),
-        ]),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
       ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text("Today's Summary",
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 12),
+        Row(children: [
+          _SummaryItem(label: 'Total Water',
+              value: '${status.litersDelivered.toStringAsFixed(1)} L',
+              color: const Color(0xFF2196F3)),
+          _SummaryItem(label: 'Total Cycles',
+              value: status.cycleActive ? '1' : '0',
+              color: const Color(0xFF4CAF50)),
+          _SummaryItem(label: 'Manual Use',
+              value: status.startedBy == 'manual'
+                  ? '${status.litersDelivered.toStringAsFixed(1)} L' : '0.0 L',
+              color: const Color(0xFFFF9800)),
+        ]),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 16),
+            const SizedBox(width: 6),
+            Text('Last Cycle (${status.rtcDate})',
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const Spacer(),
+            const Text('Completed',
+                style: TextStyle(color: Colors.grey, fontSize: 12)),
+          ],
+        ),
+      ]),
     );
   }
 }
 
 class _SummaryItem extends StatelessWidget {
-  final IconData icon;
   final String label, value;
   final Color color;
-  const _SummaryItem({required this.icon, required this.label,
-                      required this.value, required this.color});
+  const _SummaryItem({required this.label, required this.value,
+                      required this.color});
   @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(children: [
-        Icon(icon, color: color),
-        const SizedBox(height: 4),
-        Text(value,
-             style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 13)),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => Expanded(
+    child: Column(children: [
+      Text(value, style: TextStyle(
+          fontWeight: FontWeight.bold, fontSize: 16, color: color)),
+      Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+    ]),
+  );
 }
 
-class _DeviceInfoCard extends StatelessWidget {
+// ── Last Cycle Card ───────────────────────────────────────
+class _LastCycleCard extends StatelessWidget {
   final DeviceStatus status;
-  const _DeviceInfoCard({required this.status});
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Device Info',
-               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 8),
-          _InfoRow('Firmware', status.firmware.isEmpty ? '—' : status.firmware),
-          _InfoRow('RTC', '${status.rtcDate} ${status.rtcTime}'),
-          _InfoRow('RTC Set', status.rtcSet ? 'Yes' : 'No — sync via BLE'),
-          _InfoRow('WiFi', status.wifiConnected ? 'Connected' : 'Disconnected'),
-          _InfoRow('MQTT', status.mqttConnected ? 'Connected' : 'Disconnected'),
-        ]),
-      ),
-    );
-  }
-}
+  const _LastCycleCard({required this.status});
 
-class _InfoRow extends StatelessWidget {
-  final String label, value;
-  const _InfoRow(this.label, this.value);
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2))],
+      ),
       child: Row(children: [
-        SizedBox(width: 80,
-          child: Text(label,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
-        Expanded(
-          child: Text(value,
-            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Device Info',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+          const SizedBox(height: 8),
+          Text('RTC: ${status.rtcDate} ${status.rtcTime}',
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Text('WiFi: ${status.wifiRssi} dBm',
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Text('Firmware: ${status.firmware}',
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ]),
       ]),
     );
   }

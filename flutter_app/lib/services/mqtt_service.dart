@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import '../models/device_status.dart';
@@ -7,7 +8,7 @@ import '../models/history_entry.dart';
 import '../models/cycle.dart';
 
 class MqttService {
-  static const String _broker   = 'mqtt.grty.co.in';
+  static const String _broker   = '140.245.201.215';
   static const int    _port     = 1883;
   static const String _deviceId = 'SWC_001';
 
@@ -17,13 +18,12 @@ class MqttService {
   static const String _topicCycles  = 'swc/$_deviceId/cycles';
 
   MqttServerClient? _client;
-  Timer? _reconnectTimer;
+  bool _isConnecting = false;
 
-  // Use late StreamControllers so they're always ready
-  final _statusController   = StreamController<DeviceStatus>.broadcast();
-  final _historyController  = StreamController<List<HistoryEntry>>.broadcast();
-  final _cyclesController   = StreamController<List<Cycle>>.broadcast();
-  final _connectedController= StreamController<bool>.broadcast();
+  final _statusController    = StreamController<DeviceStatus>.broadcast();
+  final _historyController   = StreamController<List<HistoryEntry>>.broadcast();
+  final _cyclesController    = StreamController<List<Cycle>>.broadcast();
+  final _connectedController = StreamController<bool>.broadcast();
 
   Stream<DeviceStatus>       get statusStream    => _statusController.stream;
   Stream<List<HistoryEntry>> get historyStream   => _historyController.stream;
@@ -34,59 +34,75 @@ class MqttService {
       _client?.connectionStatus?.state == MqttConnectionState.connected;
 
   Future<bool> connect() async {
-    // Disconnect existing connection cleanly
+    if (_isConnecting) return false;
+    _isConnecting = true;
+
     try { _client?.disconnect(); } catch (_) {}
     _client = null;
 
     final clientId = 'swc_app_${DateTime.now().millisecondsSinceEpoch}';
     _client = MqttServerClient.withPort(_broker, clientId, _port);
-    _client!.logging(on: true);  // enable for debug
-    _client!.keepAlivePeriod = 20;
+    _client!.logging(on: false);
+    _client!.keepAlivePeriod = 30;
     _client!.connectTimeoutPeriod = 10000;
-    _client!.autoReconnect = true;
-    _client!.onDisconnected   = _onDisconnected;
-    _client!.onConnected      = _onConnected;
-    _client!.onAutoReconnect  = () => print('[MQTT] Auto reconnecting...');
+    _client!.onDisconnected = _onDisconnected;
+    _client!.onConnected    = _onConnected;
 
     final connMsg = MqttConnectMessage()
         .withClientIdentifier(clientId)
-        .withWillQos(MqttQos.atLeastOnce)
         .startClean();
     _client!.connectionMessage = connMsg;
 
     try {
-      print('[MQTT] Connecting to $_broker:$_port as $clientId');
       await _client!.connect();
+    } on SocketException catch (e) {
+      print('[MQTT] Socket error: $e');
+      _isConnecting = false;
+      _connectedController.add(false);
+      return false;
+    } on NoConnectionException catch (e) {
+      print('[MQTT] No connection: $e');
+      _isConnecting = false;
+      _connectedController.add(false);
+      return false;
     } catch (e) {
       print('[MQTT] Connect error: $e');
+      _isConnecting = false;
       _connectedController.add(false);
       return false;
     }
 
     if (_client!.connectionStatus!.state != MqttConnectionState.connected) {
-      print('[MQTT] Failed: ${_client!.connectionStatus!.returnCode}');
+      print('[MQTT] Not connected: ${_client!.connectionStatus!.returnCode}');
+      _isConnecting = false;
       _connectedController.add(false);
       return false;
     }
 
-    print('[MQTT] Connected — subscribing to topics');
-
-    // Subscribe with QoS 0 for status (high frequency)
+    print('[MQTT] Connected — subscribing');
     _client!.subscribe(_topicStatus,  MqttQos.atMostOnce);
     _client!.subscribe(_topicHistory, MqttQos.atLeastOnce);
     _client!.subscribe(_topicCycles,  MqttQos.atLeastOnce);
 
-    // Listen to incoming messages
-    _client!.updates?.listen((List<MqttReceivedMessage<MqttMessage>> msgs) {
-      for (final msg in msgs) {
-        final pub     = msg.payload as MqttPublishMessage;
-        final payload = MqttPublishPayload.bytesToStringAsString(
-                            pub.payload.message);
-        print('[MQTT] Received on ${msg.topic}: $payload');
-        _handleMessage(msg.topic, payload);
-      }
-    });
+    _client!.updates?.listen(
+      (List<MqttReceivedMessage<MqttMessage>> msgs) {
+        for (final msg in msgs) {
+          try {
+            final pub     = msg.payload as MqttPublishMessage;
+            final payload = MqttPublishPayload.bytesToStringAsString(
+                                pub.payload.message);
+            print('[MQTT] Received on ${msg.topic}: $payload');
+            _handleMessage(msg.topic, payload);
+          } catch (e) {
+            print('[MQTT] Message error: $e');
+          }
+        }
+      },
+      onError: (e) => print('[MQTT] Stream error: $e'),
+      cancelOnError: false,
+    );
 
+    _isConnecting = false;
     _connectedController.add(true);
     return true;
   }
@@ -98,12 +114,12 @@ class MqttService {
         _statusController.add(DeviceStatus.fromJson(json));
       } else if (topic == _topicHistory) {
         final list = (jsonDecode(payload) as List)
-            .map((e) => HistoryEntry.fromJson(e))
+            .map((e) => HistoryEntry.fromJson(e as Map<String, dynamic>))
             .toList();
         _historyController.add(list);
       } else if (topic == _topicCycles) {
         final list = (jsonDecode(payload) as List)
-            .map((e) => Cycle.fromJson(e))
+            .map((e) => Cycle.fromJson(e as Map<String, dynamic>))
             .toList();
         _cyclesController.add(list);
       }
@@ -113,14 +129,14 @@ class MqttService {
   }
 
   void _publish(Map<String, dynamic> payload) {
-    if (!isConnected) {
-      print('[MQTT] Not connected — cannot publish');
-      return;
+    if (!isConnected) { print('[MQTT] Not connected'); return; }
+    try {
+      final builder = MqttClientPayloadBuilder();
+      builder.addString(jsonEncode(payload));
+      _client!.publishMessage(_topicCmd, MqttQos.atLeastOnce, builder.payload!);
+    } catch (e) {
+      print('[MQTT] Publish error: $e');
     }
-    final builder = MqttClientPayloadBuilder();
-    builder.addString(jsonEncode(payload));
-    _client!.publishMessage(_topicCmd, MqttQos.atLeastOnce, builder.payload!);
-    print('[MQTT] Published: ${jsonEncode(payload)}');
   }
 
   void manualOn()                  => _publish({'cmd': 'manual_on'});
@@ -136,11 +152,16 @@ class MqttService {
         'cycles': cycles.map((c) => c.toJson()).toList(),
       });
 
-  void _onConnected()    { print('[MQTT] onConnected'); _connectedController.add(true);  }
-  void _onDisconnected() { print('[MQTT] onDisconnected'); _connectedController.add(false); }
+  void _onConnected()    => _connectedController.add(true);
+  void _onDisconnected() {
+    print('[MQTT] Disconnected — retrying in 5s');
+    _connectedController.add(false);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!isConnected) connect();
+    });
+  }
 
   void dispose() {
-    _reconnectTimer?.cancel();
     _statusController.close();
     _historyController.close();
     _cyclesController.close();

@@ -32,20 +32,20 @@ class DeviceStatus {
   });
 
   factory DeviceStatus.fromJson(Map<String, dynamic> j) => DeviceStatus(
-        deviceId:       j['device_id']       ?? '',
-        firmware:       j['firmware']         ?? '',
-        pumpOn:         j['pump_on']          ?? false,
-        rtcTime:        j['rtc_time']         ?? '--:--',
-        rtcDate:        j['rtc_date']         ?? '--/--/----',
-        rtcSet:         j['rtc_set']          ?? false,
-        wifiRssi:       j['wifi_rssi']        ?? 0,
-        wifiConnected:  j['wifi_connected']   ?? false,
-        mqttConnected:  j['mqtt_connected']   ?? false,
-        cycleActive:    j['cycle_active']     ?? false,
-        cyclePaused:    j['cycle_paused']     ?? false,
-        cycleId:        j['cycle_id']         ?? 0,
-        litersDelivered:j['liters_delivered'] ?? 0.0,
-        startedBy:      j['started_by']       ?? '',
+        deviceId:        j['device_id']        ?? '',
+        firmware:        j['firmware']          ?? '',
+        pumpOn:          j['pump_on']           ?? false,
+        rtcTime:         j['rtc_time']          ?? '--:--',
+        rtcDate:         j['rtc_date']          ?? '--/--/----',
+        rtcSet:          j['rtc_set']           ?? false,
+        wifiRssi:        (j['wifi_rssi']        ?? 0) as int,
+        wifiConnected:   j['wifi_connected']    ?? false,
+        mqttConnected:   j['mqtt_connected']    ?? false,
+        cycleActive:     j['cycle_active']      ?? false,
+        cyclePaused:     j['cycle_paused']      ?? false,
+        cycleId:         (j['cycle_id']         ?? 0) as int,
+        litersDelivered: (j['liters_delivered'] ?? 0).toDouble(),
+        startedBy:       j['started_by']        ?? '',
       );
 
   static DeviceStatus empty() => DeviceStatus(
