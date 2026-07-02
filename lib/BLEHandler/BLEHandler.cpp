@@ -111,6 +111,11 @@ void BLEHandler::_processCommand(const String& json) {
         delay(500);
         if (onFactoryReset) onFactoryReset();
 
+    } else if (strcmp(cmd, "wifi_scan") == 0) {
+        if (onWiFiScan) {
+            String result = onWiFiScan();
+            sendResponse(cmd, true, result.c_str());
+        }
     } else if (strcmp(cmd, "device_info") == 0) {
         String info = onGetDeviceInfo ? onGetDeviceInfo() : "{}";
         sendResponse(cmd, true, info.c_str());

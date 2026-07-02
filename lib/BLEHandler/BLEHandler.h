@@ -23,6 +23,7 @@ public:
     std::function<void()>                                       onRelayTest;
     std::function<void()>                                       onFactoryReset;
     std::function<String()>                                     onGetDeviceInfo;
+    std::function<String()>                                     onWiFiScan;
 
 private:
 public:

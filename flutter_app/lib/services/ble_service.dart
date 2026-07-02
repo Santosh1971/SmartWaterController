@@ -70,7 +70,7 @@ class BleService {
 
   // BLE Commands
   Future<void> syncRTC() async {
-    final unix = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final unix = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
     await _send({'cmd': 'rtc_sync', 'unix': unix});
   }
 
