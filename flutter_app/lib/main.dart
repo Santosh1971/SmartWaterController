@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/cycles_screen.dart';
 import 'screens/manual_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'providers/providers.dart';
-
 void main() {
   runApp(const ProviderScope(child: SWCApp()));
 }
-
 class SWCApp extends StatelessWidget {
   const SWCApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -34,16 +32,13 @@ class SWCApp extends StatelessWidget {
     );
   }
 }
-
 class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key});
   @override
   ConsumerState<MainShell> createState() => _MainShellState();
 }
-
 class _MainShellState extends ConsumerState<MainShell> {
   int _currentIndex = 0;
-
   final _screens = const [
     DashboardScreen(),
     CyclesScreen(),
@@ -51,17 +46,23 @@ class _MainShellState extends ConsumerState<MainShell> {
     HistoryScreen(),
     SettingsScreen(),
   ];
-
   @override
   void initState() {
     super.initState();
+    // Keep screen awake while app is in foreground — testing/monitoring
+    // an active irrigation cycle shouldn't be interrupted by screen sleep.
+    WakelockPlus.enable();
     // Auto-connect MQTT on startup
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final mqtt = ref.read(mqttServiceProvider);
       await mqtt.connect();
     });
   }
-
+  @override
+  void dispose() {
+    WakelockPlus.disable();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(

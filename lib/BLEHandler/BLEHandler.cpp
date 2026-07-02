@@ -61,6 +61,18 @@ void BLEHandler::loop() {
 
 bool BLEHandler::isConnected() { return _connected; }
 
+void BLEHandler::stopAdvertising() {
+    // Only needed for initial provisioning — once WiFi/MQTT are up,
+    // continued BLE advertising causes radio contention with WiFi on
+    // ESP32's shared 2.4GHz radio, leading to periodic MQTT keepalive
+    // drops. Safe to stop once the device is online and no BLE client
+    // is actively connected.
+    if (!_connected) {
+        BLEDevice::stopAdvertising();
+        Serial.println("[BLE] Advertising stopped — WiFi/MQTT priority mode");
+    }
+}
+
 void BLEHandler::sendResponse(const char* cmd, bool ok, const char* payload) {
     if (!_connected || !_txChar) return;
     JsonDocument doc;

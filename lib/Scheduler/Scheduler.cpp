@@ -158,6 +158,11 @@ void Scheduler::stopCycle(CycleStopReason reason) {
     h.cycleId         = _state.cycleId;
     h.litersDelivered = delivered;
     h.durationSeconds = (uint16_t)(h.timestamp - _state.startUnix);
+    // Safe defaults — manual runs (cycleId==255) never match a saved cycle
+    // below, so without this cycleName/mode were left uninitialized
+    // (reading garbage stack memory into the stored history entry).
+    h.cycleName[0]    = '\0';
+    h.mode            = LITER_BASED;
 
     // Find cycle name
     for (uint8_t i = 0; i < _cycleCount; i++) {
@@ -169,7 +174,10 @@ void Scheduler::stopCycle(CycleStopReason reason) {
     }
 
     const char* statusStr[] = {"completed","stopped","paused","recovered"};
-    strlcpy(h.status, statusStr[(int)reason], 16);
+    // Manual runs (cycleId==255) are tagged status="manual" so the app's
+    // Manual/Auto filter and "Manual Use" label (which check status=='manual')
+    // work correctly — the firmware never produced this value before.
+    strlcpy(h.status, (_state.cycleId == 255) ? "manual" : statusStr[(int)reason], 16);
 
     _nvs->addHistoryEntry(h);
     _nvs->clearRunningState();

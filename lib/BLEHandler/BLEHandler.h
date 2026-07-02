@@ -13,6 +13,7 @@ public:
     void loop();
     bool isConnected();
     void sendResponse(const char* cmd, bool ok, const char* payload = "{}");
+    void stopAdvertising();
 
     // Callbacks — set by main.cpp to wire into other modules
     std::function<void(const char* ssid, const char* pass)>    onWiFiConfig;

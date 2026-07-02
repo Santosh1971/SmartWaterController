@@ -164,6 +164,13 @@ void NVSManager::addHistoryEntry(const HistoryEntry& entry) {
     _prefs.end();
 }
 
+void NVSManager::clearHistory() {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putUChar("hist_count", 0);
+    _prefs.end();
+    Serial.println("[NVS] History cleared");
+}
+
 uint8_t NVSManager::getHistory(HistoryEntry* entries, uint8_t maxCount) {
     _prefs.begin(NVS_NAMESPACE, false);
     uint8_t total = _prefs.getUChar("hist_count", 0);

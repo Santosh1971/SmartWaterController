@@ -15,7 +15,7 @@ public:
     void publishStatus(const String& json);
     void publishActiveCycle(const String& json);
     void publishCycles(const String& json);
-    void publishHistory(const String& json);
+    bool publishHistory(const String& json);
 
     // Command callbacks — wired from main.cpp
     std::function<void(const String& cmd, const JsonObject& payload)> onCommand;

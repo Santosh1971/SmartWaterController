@@ -81,8 +81,8 @@ class MqttService {
 
     print('[MQTT] Connected — subscribing');
     _client!.subscribe(_topicStatus,  MqttQos.atMostOnce);
-    _client!.subscribe(_topicHistory, MqttQos.atLeastOnce);
-    _client!.subscribe(_topicCycles,  MqttQos.atLeastOnce);
+    _client!.subscribe(_topicHistory, MqttQos.atMostOnce);
+    _client!.subscribe(_topicCycles,  MqttQos.atMostOnce);
 
     _client!.updates?.listen(
       (List<MqttReceivedMessage<MqttMessage>> msgs) {
@@ -133,7 +133,7 @@ class MqttService {
     try {
       final builder = MqttClientPayloadBuilder();
       builder.addString(jsonEncode(payload));
-      _client!.publishMessage(_topicCmd, MqttQos.atLeastOnce, builder.payload!);
+      _client!.publishMessage(_topicCmd, MqttQos.atMostOnce, builder.payload!);
     } catch (e) {
       print('[MQTT] Publish error: $e');
     }

@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/providers.dart';
 import '../models/cycle.dart';
 import '../services/mqtt_service.dart';
 import 'add_cycle_screen.dart';
+
+const String _kCyclesCacheKey = 'cached_cycles';
 
 class CyclesScreen extends ConsumerStatefulWidget {
   const CyclesScreen({super.key});
@@ -12,26 +16,52 @@ class CyclesScreen extends ConsumerStatefulWidget {
 }
 
 class _CyclesScreenState extends ConsumerState<CyclesScreen> {
-  // Local cycles list — updated from MQTT + local edits
+  // Local cycles list — updated from cache, then MQTT + local edits
   List<Cycle> _cycles = [];
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _loadFromCache();
     _requestCycles();
     // Listen to cycles stream
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(mqttServiceProvider).cyclesStream.listen((cycles) {
         if (mounted) setState(() { _cycles = cycles; _loading = false; });
+        _saveToCache(cycles);
       });
     });
   }
 
+  Future<void> _loadFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kCyclesCacheKey);
+    if (raw == null || !mounted) return;
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((e) => Cycle.fromJson(e as Map<String, dynamic>))
+          .toList();
+      // Only apply cached data if we haven't already received something live
+      if (mounted && _cycles.isEmpty) {
+        setState(() { _cycles = list; _loading = false; });
+      }
+    } catch (_) {
+      // Corrupt cache — ignore, MQTT will repopulate
+    }
+  }
+
+  Future<void> _saveToCache(List<Cycle> cycles) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(cycles.map((c) => c.toJson()).toList());
+    await prefs.setString(_kCyclesCacheKey, raw);
+  }
+
   void _requestCycles() {
-    setState(() => _loading = true);
+    // Only show the spinner if we have nothing to show yet (no cache hit)
+    if (_cycles.isEmpty) setState(() => _loading = true);
     ref.read(mqttServiceProvider).getCycles();
-    // Timeout loading after 3 seconds
+    // Timeout loading after 3 seconds — fall back to whatever we have (cache or empty)
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted && _loading) setState(() => _loading = false);
     });
@@ -45,6 +75,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
                   existingCycles: _cycles,
                   onSaved: (updatedCycles) {
                     setState(() => _cycles = updatedCycles);
+                    _saveToCache(updatedCycles);
                     // Send to device
                     ref.read(mqttServiceProvider).setCycles(updatedCycles);
                   },
@@ -57,6 +88,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     final updated = List<Cycle>.from(_cycles);
     updated[index] = _cycles[index].copyWith(enabled: val);
     setState(() => _cycles = updated);
+    _saveToCache(updated);
     ref.read(mqttServiceProvider).setCycles(updated);
   }
 

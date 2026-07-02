@@ -22,7 +22,7 @@ void MQTTHandler::begin() {
     _mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     _mqtt.setCallback(mqttCallback);
     _mqtt.setKeepAlive(30);
-    _mqtt.setBufferSize(1024);
+    _mqtt.setBufferSize(4096);  // room for a full 20-entry history payload
     Serial.printf("[MQTT] Configured — %s:%d\n", MQTT_BROKER, MQTT_PORT);
 }
 
@@ -71,6 +71,6 @@ void MQTTHandler::publishCycles(const String& json) {
     _mqtt.publish(MQTT_TOPIC_CYCLES, json.c_str(), true);
 }
 
-void MQTTHandler::publishHistory(const String& json) {
-    _mqtt.publish(MQTT_TOPIC_HISTORY, json.c_str(), false);
+bool MQTTHandler::publishHistory(const String& json) {
+    return _mqtt.publish(MQTT_TOPIC_HISTORY, json.c_str(), false);
 }

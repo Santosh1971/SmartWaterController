@@ -199,6 +199,7 @@ void setup() {
         Serial.printf("[WiFi] Connected — IP: %s\n",
             WiFi.localIP().toString().c_str());
         syncNTP();
+        ble.stopAdvertising();
     }
 
     // MQTT callbacks
@@ -243,9 +244,14 @@ void setup() {
             mqtt.publishCycles(buildCyclesJSON());
         }
 
+        else if (cmd == "clear_history") {
+            nvs.clearHistory();
+        }
+
         else if (cmd == "get_history") {
             HistoryEntry entries[20];
             uint8_t count = nvs.getHistory(entries, 20);
+            Serial.printf("[HISTORY] Fetched %d entries from NVS\n", count);
             JsonDocument doc;
             JsonArray arr = doc.to<JsonArray>();
             for (uint8_t i = 0; i < count; i++) {
@@ -259,7 +265,9 @@ void setup() {
                 o["status"] = entries[i].status;
             }
             String out; serializeJson(doc, out);
-            mqtt.publishHistory(out);
+            Serial.printf("[HISTORY] Publishing %d bytes: %s\n", out.length(), out.c_str());
+            bool ok = mqtt.publishHistory(out);
+            Serial.printf("[HISTORY] Publish result: %s\n", ok ? "OK" : "FAILED");
         }
     };
 

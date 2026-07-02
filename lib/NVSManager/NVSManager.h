@@ -59,6 +59,7 @@ public:
     void saveRunningState(const RunningState& state);
     bool loadRunningState(RunningState& state);
     void clearRunningState();
+    void clearHistory();
 
     // History
     void addHistoryEntry(const HistoryEntry& entry);

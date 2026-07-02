@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/providers.dart';
 import '../models/history_entry.dart';
 import '../models/cycle.dart';
 import '../services/mqtt_service.dart';
+
+const String _kHistoryCacheKey = 'cached_history';
 
 class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
@@ -15,17 +19,51 @@ class HistoryScreen extends ConsumerStatefulWidget {
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   String _filter = 'All';
   DateTime _date = DateTime.now();
+  List<HistoryEntry> _entries = [];
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => ref.read(mqttServiceProvider).getHistory());
+    _loadFromCache();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(mqttServiceProvider).getHistory();
+      ref.read(mqttServiceProvider).historyStream.listen((entries) {
+        if (mounted) setState(() { _entries = entries; _loading = false; });
+        _saveToCache(entries);
+      });
+      // Timeout loading after 3 seconds — fall back to whatever we have (cache or empty)
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && _loading) setState(() => _loading = false);
+      });
+    });
+  }
+
+  Future<void> _loadFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kHistoryCacheKey);
+    if (raw == null || !mounted) return;
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((e) => HistoryEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (mounted && _entries.isEmpty) {
+        setState(() { _entries = list; _loading = false; });
+      }
+    } catch (_) {
+      // Corrupt cache — ignore, MQTT will repopulate
+    }
+  }
+
+  Future<void> _saveToCache(List<HistoryEntry> entries) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(entries.map((e) => e.toJson()).toList());
+    await prefs.setString(_kHistoryCacheKey, raw);
   }
 
   @override
   Widget build(BuildContext context) {
-    final historyAsync = ref.watch(historyProvider);
+    final filtered = _filterEntries(_entries);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -94,18 +132,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: historyAsync.maybeWhen(
-            data: (entries) {
-              final filtered = _filterEntries(entries);
-              if (filtered.isEmpty) return _buildEmpty();
-              return _buildList(filtered);
-            },
-            orElse: () => _buildEmpty(),
-          ),
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(
+                  color: Color(0xFF2196F3)))
+              : filtered.isEmpty
+                  ? _buildEmpty()
+                  : _buildList(filtered),
         ),
-        historyAsync.maybeWhen(
-          data: (entries) {
-            final filtered = _filterEntries(entries);
+        if (!_loading && filtered.isNotEmpty)
+          Builder(builder: (_) {
             final totalLiters = filtered.fold<double>(
                 0, (sum, e) => sum + e.litersDelivered);
             final totalCycles = filtered
@@ -125,9 +160,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ],
               ),
             );
-          },
-          orElse: () => const SizedBox(),
-        ),
+          }),
       ]),
     );
   }
