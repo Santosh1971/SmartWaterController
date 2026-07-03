@@ -201,11 +201,15 @@ class _CycleTile extends StatelessWidget {
                   fontWeight: FontWeight.w600, fontSize: 15)),
           if (cycle.name.isNotEmpty) ...[
             const SizedBox(width: 8),
-            Text('· ${cycle.name}',
-                style: TextStyle(color: Colors.grey.shade500,
-                    fontSize: 13)),
+            Flexible(
+              child: Text('· ${cycle.name}',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(color: Colors.grey.shade500,
+                      fontSize: 13)),
+            ),
           ],
-          const Spacer(),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(
                 horizontal: 8, vertical: 3),

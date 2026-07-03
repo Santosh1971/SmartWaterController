@@ -22,7 +22,7 @@ void MQTTHandler::begin() {
     _mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     _mqtt.setCallback(mqttCallback);
     _mqtt.setKeepAlive(30);
-    _mqtt.setBufferSize(4096);  // room for a full 20-entry history payload
+    _mqtt.setBufferSize(24576);  // room for a full month's history range payload (~150-200 entries)
     Serial.printf("[MQTT] Configured — %s:%d\n", MQTT_BROKER, MQTT_PORT);
 }
 

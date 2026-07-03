@@ -146,6 +146,21 @@ class MqttService {
   void pauseCycle()                => _publish({'cmd': 'pause_cycle'});
   void resumeCycle()               => _publish({'cmd': 'resume_cycle'});
   void getHistory()                => _publish({'cmd': 'get_history'});
+
+  // Firmware stores RTC timestamps as IST wall-clock fields treated as UTC
+  // (see RTCManager::syncFromTm) — so range queries must encode from/to the
+  // same way: take the wall-clock date/time fields and reinterpret as UTC,
+  // rather than converting through the phone's real timezone offset.
+  int _deviceEpoch(DateTime wallClock) => DateTime.utc(
+        wallClock.year, wallClock.month, wallClock.day,
+        wallClock.hour, wallClock.minute, wallClock.second,
+      ).millisecondsSinceEpoch ~/ 1000;
+
+  void getHistoryRange(DateTime from, DateTime to) => _publish({
+        'cmd': 'get_history_range',
+        'from': _deviceEpoch(from),
+        'to': _deviceEpoch(to),
+      });
   void getCycles()                 => _publish({'cmd': 'get_cycles'});
   void setCycles(List<Cycle> cycles) => _publish({
         'cmd': 'set_cycles',

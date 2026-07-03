@@ -248,6 +248,54 @@ void setup() {
             nvs.clearHistory();
         }
 
+        else if (cmd == "seed_test_history") {
+            // TEST DATA ONLY — generates realistic-looking history across
+            // the last 30 days for graph/UI testing. Not for production use.
+            nvs.clearHistory();
+            uint32_t nowTs = rtc.getUnixTime();
+            for (int day = 29; day >= 0; day--) {
+                int entriesForDay = random(0, 3);  // 0, 1, or 2 per day
+                for (int e = 0; e < entriesForDay; e++) {
+                    HistoryEntry h;
+                    h.timestamp = nowTs - (uint32_t)day * 86400 - random(0, 20000);
+                    bool isManual = random(0, 2) == 0;
+                    h.cycleId = isManual ? 255 : 1;
+                    strlcpy(h.cycleName, isManual ? "" : "Morning Watering", 32);
+                    h.mode = TIME_BASED;
+                    h.litersDelivered = 1.0f + (random(0, 700) / 100.0f);  // 1.0-8.0L
+                    h.durationSeconds = random(10, 180);
+                    strlcpy(h.status, isManual ? "manual" : "completed", 16);
+                    nvs.addHistoryEntry(h);
+                }
+            }
+            Serial.println("[HISTORY] Seeded 30 days of test data");
+        }
+
+        else if (cmd == "get_history_range") {
+            uint32_t fromTs = payload["from"];
+            uint32_t toTs   = payload["to"];
+            static HistoryEntry rangeEntries[HISTORY_MAX_ENTRIES];  // static — too large for stack
+            uint8_t count = nvs.getHistoryInRange(rangeEntries, HISTORY_MAX_ENTRIES, fromTs, toTs);
+            Serial.printf("[HISTORY] Range fetch: %d entries matched (from=%u to=%u)\n",
+                          count, fromTs, toTs);
+            JsonDocument doc;
+            JsonArray arr = doc.to<JsonArray>();
+            for (uint8_t i = 0; i < count; i++) {
+                JsonObject o = arr.add<JsonObject>();
+                o["ts"]     = rangeEntries[i].timestamp;
+                o["cid"]    = rangeEntries[i].cycleId;
+                o["name"]   = rangeEntries[i].cycleName;
+                o["mode"]   = (int)rangeEntries[i].mode;
+                o["liters"] = rangeEntries[i].litersDelivered;
+                o["dur"]    = rangeEntries[i].durationSeconds;
+                o["status"] = rangeEntries[i].status;
+            }
+            String out; serializeJson(doc, out);
+            Serial.printf("[HISTORY] Publishing range: %d bytes\n", out.length());
+            bool ok = mqtt.publishHistory(out);
+            Serial.printf("[HISTORY] Range publish result: %s\n", ok ? "OK" : "FAILED");
+        }
+
         else if (cmd == "get_history") {
             HistoryEntry entries[20];
             uint8_t count = nvs.getHistory(entries, 20);

@@ -171,6 +171,34 @@ void NVSManager::clearHistory() {
     Serial.println("[NVS] History cleared");
 }
 
+uint8_t NVSManager::getHistoryInRange(HistoryEntry* entries, uint8_t maxCount,
+                                       uint32_t fromTs, uint32_t toTs) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    uint8_t total     = _prefs.getUChar("hist_count", 0);
+    uint8_t available = min(total, (uint8_t)HISTORY_MAX_ENTRIES);
+    uint8_t start      = (total > HISTORY_MAX_ENTRIES) ? total % HISTORY_MAX_ENTRIES : 0;
+    uint8_t matched = 0;
+    for (uint8_t i = 0; i < available && matched < maxCount; i++) {
+        uint8_t idx = (start + i) % HISTORY_MAX_ENTRIES;
+        String key  = "h_" + String(idx);
+        String json = _prefs.getString(key.c_str(), "{}");
+        JsonDocument doc;
+        if (deserializeJson(doc, json) != DeserializationError::Ok) continue;
+        uint32_t ts = doc["ts"];
+        if (ts < fromTs || ts > toTs) continue;
+        entries[matched].timestamp       = ts;
+        entries[matched].cycleId         = doc["cid"];
+        strlcpy(entries[matched].cycleName, doc["name"] | "", 32);
+        entries[matched].mode            = (OperationMode)(int)doc["mode"];
+        entries[matched].litersDelivered = doc["liters"];
+        entries[matched].durationSeconds = doc["dur"];
+        strlcpy(entries[matched].status, doc["status"] | "", 16);
+        matched++;
+    }
+    _prefs.end();
+    return matched;
+}
+
 uint8_t NVSManager::getHistory(HistoryEntry* entries, uint8_t maxCount) {
     _prefs.begin(NVS_NAMESPACE, false);
     uint8_t total = _prefs.getUChar("hist_count", 0);

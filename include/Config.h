@@ -35,7 +35,7 @@
 // ---------- Scheduler ----------
 #define MAX_CYCLES          4
 #define NVS_NAMESPACE       "swc"
-#define HISTORY_MAX_ENTRIES 100
+#define HISTORY_MAX_ENTRIES 200  // ~1 month at moderate use (5 events/day)
 
 // ---------- Timing ----------
 #define STATUS_PUBLISH_INTERVAL_MS   5000

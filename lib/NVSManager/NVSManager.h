@@ -64,6 +64,8 @@ public:
     // History
     void addHistoryEntry(const HistoryEntry& entry);
     uint8_t getHistory(HistoryEntry* entries, uint8_t maxCount);
+    uint8_t getHistoryInRange(HistoryEntry* entries, uint8_t maxCount,
+                               uint32_t fromTs, uint32_t toTs);
 
     // Calibration
     void saveCalibration(uint32_t pulsesPerLiter);
