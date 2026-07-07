@@ -7,7 +7,7 @@
 #include "RelayControl.h"
 #include "NVSManager.h"
 #include "Scheduler.h"
-#include "BLEHandler.h"
+#include "SoftAPHandler.h"
 #include "MQTTClient.h"
 #include "LEDManager.h"
 #include "WiFiScanner.h"
@@ -17,7 +17,7 @@ FlowSensor   flowSensor;
 RelayControl relay;
 NVSManager   nvs;
 Scheduler    scheduler;
-BLEHandler   ble;
+SoftAPHandler   ble;
 MQTTHandler  mqtt;
 LEDManager   leds;
 WiFiScanner  wifiScanner;
@@ -352,3 +352,4 @@ void loop() {
         }
     }
 }
+

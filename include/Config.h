@@ -53,3 +53,7 @@
 
 // Flow LED
 #define FLOW_LED_PULSE_MS            50    // brief flash per pulse burst
+
+// ---------- SoftAP Provisioning ----------
+#define SOFTAP_SSID         "SmartWaterCtrl-Setup"
+#define SOFTAP_PASSWORD     "swcsetup123"   // min 8 chars required by ESP32 SoftAP
