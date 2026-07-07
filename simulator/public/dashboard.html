@@ -2,200 +2,126 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>SWC Simulator — Control Panel</title>
+<title>SWC SoftAP Simulator</title>
 <style>
-  :root{
-    --bg: #12181a;
-    --panel: #1a2226;
-    --panel-line: #263135;
-    --amber: #e8a33d;
-    --green: #4caf7d;
-    --red: #d95b4a;
-    --text: #d8e0e2;
-    --muted: #7c8a8e;
-    --mono: 'SF Mono', 'Consolas', monospace;
-  }
+  :root{ --bg:#12181a; --panel:#1a2226; --line:#263135; --amber:#e8a33d; --green:#4caf7d; --red:#d95b4a; --text:#d8e0e2; --muted:#7c8a8e; --mono:'SF Mono','Consolas',monospace; }
   *{box-sizing:border-box;}
-  body{
-    margin:0; background:var(--bg); color:var(--text);
-    font-family: -apple-system, 'Segoe UI', sans-serif;
-    padding:24px;
-  }
+  body{margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,'Segoe UI',sans-serif; padding:24px;}
   h1{font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 20px;}
   h1 span{color:var(--amber);}
-  .grid{display:grid; grid-template-columns: 260px 260px 1fr; gap:16px;}
-  @media (max-width: 900px){ .grid{grid-template-columns: 1fr;} }
-  .panel{
-    background:var(--panel); border:1px solid var(--panel-line); border-radius:6px; padding:16px;
-  }
+  .grid{display:grid; grid-template-columns: 300px 300px 1fr; gap:16px;}
+  @media (max-width:940px){ .grid{grid-template-columns:1fr;} }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px;}
   .panel h2{font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 14px;}
-
-  /* relay switch */
-  .switch-row{display:flex; align-items:center; gap:12px; margin-bottom:10px;}
-  .switch{
-    width:56px; height:28px; background:#0e1416; border-radius:14px; border:1px solid var(--panel-line);
-    position:relative; cursor:pointer;
-  }
-  .switch .knob{
-    position:absolute; top:2px; left:2px; width:22px; height:22px; border-radius:50%;
-    background:var(--muted); transition: all .15s ease;
-  }
-  .switch.on{background:#1c3327; border-color:var(--green);}
-  .switch.on .knob{left:32px; background:var(--green);}
-  .state-label{font-family:var(--mono); font-size:13px;}
-
-  /* LEDs */
-  .led-row{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
-  .led{width:12px; height:12px; border-radius:50%; background:#2a3538; flex-shrink:0;}
-  .led.on{background:var(--green); box-shadow:0 0 8px var(--green);}
-  .led.blink{animation:blink 1s infinite;}
-  .led.blink-fast{animation:blink .35s infinite;}
-  @keyframes blink{50%{opacity:.2;}}
-  .led-label{font-size:12px; color:var(--muted);}
-  .led-label b{color:var(--text); font-weight:500;}
-
-  /* flow */
-  .stat{font-family:var(--mono); font-size:22px; margin-bottom:2px;}
-  .stat-label{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:14px;}
-  input[type=range]{width:100%; margin:8px 0;}
-  button{
-    background:#20292c; color:var(--text); border:1px solid var(--panel-line); border-radius:4px;
-    padding:7px 12px; font-size:12px; cursor:pointer; margin-right:6px; margin-bottom:6px;
-  }
+  .row{display:flex; align-items:center; gap:10px; margin-bottom:10px; font-size:13px;}
+  .dot{width:10px; height:10px; border-radius:50%; background:#2a3538; flex-shrink:0;}
+  .dot.on{background:var(--green); box-shadow:0 0 6px var(--green);}
+  .stat{font-family:var(--mono); font-size:20px; margin-bottom:2px;}
+  .stat-label{font-size:11px; color:var(--muted); text-transform:uppercase; margin-bottom:12px;}
+  button{background:#20292c; color:var(--text); border:1px solid var(--line); border-radius:4px; padding:7px 10px; font-size:12px; cursor:pointer; margin:0 6px 6px 0;}
   button:hover{border-color:var(--amber);}
-  input[type=text], input[type=number]{
-    background:#0e1416; border:1px solid var(--panel-line); color:var(--text);
-    padding:6px 8px; border-radius:4px; font-size:12px; width:100%; margin-bottom:8px;
-  }
-
-  /* log */
-  #log{
-    font-family:var(--mono); font-size:11px; color:var(--muted);
-    height:180px; overflow-y:auto; white-space:pre-wrap; line-height:1.5;
-  }
-  .log-line b{color:var(--amber);}
+  input[type=text],input[type=number]{background:#0e1416; border:1px solid var(--line); color:var(--text); padding:6px 8px; border-radius:4px; font-size:12px; width:100%; margin-bottom:6px;}
+  input[type=range]{width:100%; margin:6px 0;}
+  #log{font-family:var(--mono); font-size:11px; color:var(--muted); height:220px; overflow-y:auto; white-space:pre-wrap; line-height:1.5;}
 </style>
 </head>
 <body>
 
-<h1>SmartWaterController <span>· Simulator</span></h1>
+<h1>SmartWaterController <span>· SoftAP Simulator</span></h1>
 
 <div class="grid">
 
-  <!-- RELAY -->
   <div class="panel">
-    <h2>Relay</h2>
-    <div class="switch-row">
-      <div class="switch" id="relaySwitch"><div class="knob"></div></div>
-      <div class="state-label" id="relayLabel">OFF</div>
-    </div>
-    <div class="led-row">
-      <div class="led" id="wifiLed"></div>
-      <div class="led-label"><b>WiFi</b> <span id="wifiState">ap_mode</span></div>
-    </div>
-    <div class="led-row">
-      <div class="led" id="flowLed"></div>
-      <div class="led-label"><b>Flow pulse</b></div>
-    </div>
-    <button onclick="setWifi('ap_mode')">AP mode</button>
-    <button onclick="setWifi('connecting')">Connecting</button>
-    <button onclick="setWifi('connected')">Connected</button>
+    <h2>Device Status (device_info)</h2>
+    <div class="row"><div class="dot" id="wifiDot"></div> WiFi connected: <b id="wifiVal">false</b></div>
+    <div class="row"><div class="dot" id="mqttDot"></div> MQTT connected: <b id="mqttVal">false</b></div>
+    <div class="row"><div class="dot" id="pumpDot"></div> Pump on: <b id="pumpVal">false</b></div>
+    <div class="stat" id="litersVal">0.000 L</div>
+    <div class="stat-label">Liters delivered (this cycle)</div>
+    <div class="stat" id="rtcVal">--:--:--</div>
+    <div class="stat-label">RTC time</div>
   </div>
 
-  <!-- FLOW -->
   <div class="panel">
-    <h2>Flow Sensor</h2>
-    <div class="stat" id="statTotal">0.000 L</div>
-    <div class="stat-label">Total liters</div>
-    <div class="stat" id="statRate">0.0 L/min</div>
-    <div class="stat-label">Set flow rate (relay must be ON to accumulate)</div>
+    <h2>Provisioning Commands</h2>
+    <input type="text" id="ssid" placeholder="ssid">
+    <input type="text" id="pass" placeholder="pass">
+    <button onclick="wifiConfig()">POST /wifi_config</button>
+    <hr style="border-color:var(--line); margin:12px 0;">
+    <input type="text" id="broker" placeholder="broker" value="87.76.191.157">
+    <input type="text" id="mqttUser" placeholder="user (optional)">
+    <input type="text" id="mqttPass" placeholder="pass (optional)">
+    <button onclick="mqttConfig()">POST /mqtt_config</button>
+    <hr style="border-color:var(--line); margin:12px 0;">
+    <button onclick="rtcSync()">POST /rtc_sync (now)</button>
+    <button onclick="relayTest()">POST /relay_test</button>
+    <button onclick="wifiScan()">GET /wifi_scan</button>
+    <button onclick="factoryReset()">POST /factory_reset</button>
+  </div>
+
+  <div class="panel">
+    <h2>Manual Sim Controls (dashboard-only)</h2>
+    <div class="row">Flow rate: <span id="rateVal">0.0</span> L/min</div>
     <input type="range" id="flowSlider" min="0" max="10" step="0.5" value="0" oninput="onFlowSlider(this.value)">
-    <button onclick="pulse()">+1 pulse</button>
+    <button onclick="toggleRelay()">Toggle relay manually</button>
     <button onclick="resetTotals()">Reset totals</button>
-  </div>
 
-  <!-- LEDS + REQUEST LOG -->
-  <div class="panel">
-    <h2>Add Virtual LED / Output</h2>
-    <input type="text" id="ledId" placeholder="id, e.g. relay2_led">
-    <input type="text" id="ledLabel" placeholder="label, e.g. Second Valve">
-    <input type="number" id="ledGpio" placeholder="gpio (informational)">
-    <button onclick="addLed()">Add output</button>
-
-    <h2 style="margin-top:18px;">Device API Log</h2>
+    <h2 style="margin-top:18px;">Request Log</h2>
     <div id="log"></div>
   </div>
 
 </div>
 
 <script>
-const base = '';
-let ws;
-
 function log(line){
   const el = document.getElementById('log');
-  const time = new Date().toLocaleTimeString();
-  el.innerHTML += `<div class="log-line">[${time}] ${line}</div>`;
+  el.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${line}</div>`;
   el.scrollTop = el.scrollHeight;
 }
 
-function connectWs(){
-  ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'status') render(msg.data);
-  };
-  ws.onclose = () => setTimeout(connectWs, 1000);
-}
-connectWs();
+const ws = new WebSocket(`ws://${location.host}/ws`);
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === 'status') render(msg.data);
+};
 
 function render(s){
-  document.getElementById('relaySwitch').className = 'switch' + (s.relay.on ? ' on' : '');
-  document.getElementById('relayLabel').textContent = s.relay.on ? 'ON' : 'OFF';
-
-  document.getElementById('wifiState').textContent = s.wifi.status;
-  const wled = document.getElementById('wifiLed');
-  wled.className = 'led';
-  if (s.wifi.ledPattern === 'solid') wled.classList.add('on');
-  if (s.wifi.ledPattern === 'blink_slow') wled.classList.add('on','blink');
-  if (s.wifi.ledPattern === 'blink_fast') wled.classList.add('on','blink-fast');
-
-  const fled = document.getElementById('flowLed');
-  fled.className = 'led' + (s.flow.ledOn ? ' on' : '');
-
-  document.getElementById('statTotal').textContent = s.flow.totalLiters.toFixed(3) + ' L';
-  document.getElementById('statRate').textContent = s.flow.literPerMin.toFixed(1) + ' L/min';
+  document.getElementById('wifiDot').className = 'dot' + (s.wifi_connected ? ' on' : '');
+  document.getElementById('wifiVal').textContent = s.wifi_connected;
+  document.getElementById('mqttDot').className = 'dot' + (s.mqtt_connected ? ' on' : '');
+  document.getElementById('mqttVal').textContent = s.mqtt_connected;
+  document.getElementById('pumpDot').className = 'dot' + (s.pump_on ? ' on' : '');
+  document.getElementById('pumpVal').textContent = s.pump_on;
+  document.getElementById('litersVal').textContent = s.liters_delivered.toFixed(3) + ' L';
+  document.getElementById('rtcVal').textContent = s.rtc_time;
 }
 
 async function post(path, body){
   log(`POST ${path} ${body ? JSON.stringify(body) : ''}`);
-  const res = await fetch(base + path, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: body ? JSON.stringify(body) : undefined
-  });
-  return res.json();
+  const res = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json();
+  log(`  → ${JSON.stringify(json)}`);
+  return json;
+}
+async function get(path){
+  log(`GET ${path}`);
+  const res = await fetch(path);
+  const json = await res.json();
+  log(`  → ${JSON.stringify(json)}`);
+  return json;
 }
 
-document.getElementById('relaySwitch').onclick = async () => {
-  const on = !document.getElementById('relaySwitch').classList.contains('on');
-  await post('/command/relay', {on});
-};
+function wifiConfig(){ post('/wifi_config', {ssid: document.getElementById('ssid').value, pass: document.getElementById('pass').value}); }
+function mqttConfig(){ post('/mqtt_config', {broker: document.getElementById('broker').value, port:1883, user: document.getElementById('mqttUser').value, pass: document.getElementById('mqttPass').value}); }
+function rtcSync(){ post('/rtc_sync', {unix: Math.floor(Date.now()/1000)}); }
+function relayTest(){ post('/relay_test', {}); }
+function wifiScan(){ get('/wifi_scan'); }
+function factoryReset(){ post('/factory_reset', {}); }
 
-function onFlowSlider(v){ post('/sim/flow-rate', {literPerMin: parseFloat(v)}); }
-function pulse(){ post('/sim/pulse'); }
-function resetTotals(){ post('/sim/reset-totals'); }
-function setWifi(status){ post('/sim/wifi-state', {status}); }
-
-async function addLed(){
-  const id = document.getElementById('ledId').value.trim();
-  const label = document.getElementById('ledLabel').value.trim();
-  const gpio = document.getElementById('ledGpio').value.trim();
-  if (!id) return;
-  await post('/leds', {id, label, gpio});
-  document.getElementById('ledId').value='';
-  document.getElementById('ledLabel').value='';
-  document.getElementById('ledGpio').value='';
-}
+let relayState = false;
+function toggleRelay(){ relayState = !relayState; post('/sim/relay', {on: relayState}); }
+function onFlowSlider(v){ document.getElementById('rateVal').textContent = parseFloat(v).toFixed(1); post('/sim/flow-rate', {literPerMin: parseFloat(v)}); }
+function resetTotals(){ post('/sim/reset-totals', {}); }
 </script>
 </body>
 </html>

@@ -1,11 +1,8 @@
-// server.js — mock ESP32 SoftAP server for SmartWaterController app development.
-// Run this on your dev machine, point the Flutter app's "SoftAP base URL" at it
-// instead of the real ESP32's 192.168.4.1, and develop the SoftAP flow with zero hardware.
-//
-// Endpoints below are a REASONABLE STARTING GUESS at what an ESP32 SoftAP config
-// server usually exposes. Adjust paths/payloads in this file to match your actual
-// firmware's SoftAP HTTP routes once you confirm them — the dashboard and state
-// machine don't need to change, only the route table.
+// server.js — mock SoftAP HTTP server matching lib/SoftAPHandler exactly.
+// Routes, methods, and the {ok, payload} response envelope mirror the real
+// ESP32 firmware on the softap-provisioning branch. Point the Flutter app's
+// SoftAP base URL here (http://localhost:4000) instead of the real device's
+// http://192.168.4.1 to develop against it with zero hardware.
 
 const express = require('express');
 const http = require('http');
@@ -17,69 +14,74 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: '/ws' });
+const wss = new WebSocket.Server({ server, path: '/ws' }); // dashboard live-update only, not part of real device API
 
-function broadcast(payload) {
-  const msg = JSON.stringify({ type: 'status', data: payload });
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg);
-  });
+function broadcast() {
+  const msg = JSON.stringify({ type: 'status', data: state.buildStatusJSON() });
+  wss.clients.forEach((c) => { if (c.readyState === WebSocket.OPEN) c.send(msg); });
 }
 
-// ---- SoftAP-style REST endpoints ----
+function reply(res, ok, payload = {}) {
+  res.status(ok ? 200 : 400).json({ ok, payload });
+}
 
-// Device status — what the app polls right after connecting to the AP
-app.get('/status', (req, res) => res.json(state.snapshot()));
+// ---- Real SoftAPHandler routes (match lib/SoftAPHandler/SoftAPHandler.cpp) ----
 
-// WiFi provisioning — hand over home WiFi creds like real SoftAP config pages do
-app.post('/wifi/config', (req, res) => {
-  const { ssid, password } = req.body || {};
-  if (!ssid) return res.status(400).json({ error: 'ssid required' });
-  state.setWifi('connecting');
-  broadcast(state.snapshot());
-  setTimeout(() => {
-    state.setWifi('connected');
-    broadcast(state.snapshot());
-  }, 2000); // simulate the real handshake delay
-  res.json({ accepted: true, ssid });
+app.post('/wifi_config', (req, res) => {
+  const { ssid, pass } = req.body || {};
+  if (!ssid) return reply(res, false, { msg: 'ssid required' });
+  state.setWifiConfig(ssid, pass || '');
+  reply(res, true);
 });
 
-// Manual relay control
-app.post('/command/relay', (req, res) => {
-  const { on } = req.body || {};
-  res.json(state.setRelay(!!on));
+app.post('/mqtt_config', (req, res) => {
+  const { broker, port, user, pass } = req.body || {};
+  if (!broker) return reply(res, false, { msg: 'broker required' });
+  state.setMqttConfig(broker, port || 1883, user || '', pass || '');
+  reply(res, true);
 });
 
-// Cycles CRUD
-app.get('/cycles', (req, res) => res.json(state.state.cycles));
-app.post('/cycles', (req, res) => res.json(state.addCycle(req.body || {})));
-app.delete('/cycles/:id', (req, res) => res.json(state.removeCycle(req.params.id)));
+app.post('/rtc_sync', (req, res) => {
+  const { unix } = req.body || {};
+  if (!unix) return reply(res, false, { msg: 'unix required' });
+  state.setRtcSync(unix);
+  reply(res, true);
+});
 
-// LED registry — supports adding more virtual outputs without a firmware rebuild
-app.get('/leds', (req, res) => res.json(state.state.leds));
-app.post('/leds', (req, res) => res.json(state.addLed(req.body || {})));
+app.post('/calibrate', (req, res) => {
+  const { ppl } = req.body || {};
+  state.setCalibration(ppl);
+  reply(res, true);
+});
 
-// ---- Dashboard-only endpoints (not part of the real device API — for manual testing) ----
+app.post('/relay_test', (req, res) => {
+  state.relayTest();
+  reply(res, true);
+});
+
+app.post('/factory_reset', (req, res) => {
+  reply(res, true);
+  setTimeout(() => state.factoryReset(), 300);
+});
+
+app.get('/wifi_scan', (req, res) => res.json(state.wifiScan()));
+
+app.get('/device_info', (req, res) => res.json(state.buildStatusJSON()));
+
+// ---- Dashboard-only manual controls (not part of the real device API) ----
+app.post('/sim/relay', (req, res) => res.json(state.setRelay(!!req.body.on)));
 app.post('/sim/flow-rate', (req, res) => res.json(state.setFlowRate(req.body.literPerMin)));
-app.post('/sim/pulse', (req, res) => res.json(state.injectPulse()));
 app.post('/sim/reset-totals', (req, res) => res.json(state.resetTotals()));
-app.post('/sim/wifi-state', (req, res) => res.json(state.setWifi(req.body.status)));
 
-wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'status', data: state.snapshot() }));
-});
-
+wss.on('connection', (ws) => ws.send(JSON.stringify({ type: 'status', data: state.buildStatusJSON() })));
 state.startFlowLoop(broadcast);
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`SWC simulator running:`);
-  console.log(`  Dashboard:  http://localhost:${PORT}`);
-  console.log(`  Device API: http://localhost:${PORT}/status  (point Flutter app here)`);
-  console.log(`  LAN access: http://<this-machine-LAN-IP>:${PORT}  (use this from a phone)`);
+  console.log(`SWC SoftAP simulator running:`);
+  console.log(`  Dashboard:   http://localhost:${PORT}`);
+  console.log(`  Device API:  http://localhost:${PORT}/device_info  (point Flutter SoftAP client here)`);
+  console.log(`  LAN access:  http://<this-machine-LAN-IP>:${PORT}  (use from a phone)`);
 });
-
-

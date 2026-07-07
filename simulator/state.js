@@ -1,127 +1,113 @@
-// state.js — simulated ESP32 device state for SoftAP dev/testing
-// Mirrors the fields your firmware's DeviceStatus/Cycle structs expose over MQTT,
-// so the same Flutter models (DeviceStatus, Cycle, HistoryEntry) work unchanged.
+// state.js — mirrors the real field names in main.cpp's buildStatusJSON()
+// and the SoftAPHandler command set, so the Flutter app's parsing code
+// works unchanged against real hardware later.
 
-const PULSES_PER_LITER = 450.0; // matches FarmFlow; adjust if SWC uses a different sensor constant
+const PULSES_PER_LITER = 450.0; // matches DEFAULT_PULSES_PER_LITER in Config.h
 
 const state = {
-  deviceId: 'SWC_001_SIM',
-  relay: { on: false, sinceMs: Date.now() },
-  wifi: { status: 'ap_mode', ledPattern: 'blink_slow' }, // ap_mode | connecting | connected
-  flow: {
-    pulseCount: 0,
-    literPerMin: 0,       // operator-set simulated flow rate
-    totalLiters: 0,
-    ledOn: false,
-  },
-  cycles: [
-    // { id, mode: 'liter'|'time'|'time_window_liter', target, startTime, active }
-  ],
-  activeCycle: null,
-  leds: [
-    { id: 'wifi_led', label: 'WiFi', gpio: 26, state: 'blink_slow' },
-    { id: 'flow_led', label: 'Flow Pulse', gpio: 14, state: 'off' },
-  ],
+  deviceId: 'SWC_001',
+  firmware: '1.0.0',
+  pumpOn: false,
+  rtcSet: true,
+  wifiConnected: false,   // false while in SoftAP-only provisioning state
+  mqttConnected: false,
+  cycle: { active: false, paused: false, cycleId: 255, litersDelivered: 0, startedBy: 'none' },
+  literPerMin: 0,         // operator-set simulated flow rate (dashboard control only)
+  savedWifi: null,        // {ssid, pass} — set via /wifi_config
+  savedMqtt: null,        // {broker, port, user, pass} — set via /mqtt_config
+  calibrationPPL: PULSES_PER_LITER,
   clock: new Date(),
-  history: [],
 };
 
-let flowTimer = null;
-
-function startFlowLoop(broadcast) {
-  // simulate pulses arriving at the rate the operator set via the dashboard,
-  // only while the relay is on — same as a real flow sensor only pulsing under water flow
-  setInterval(() => {
-    state.clock = new Date();
-    if (state.relay.on && state.flow.literPerMin > 0) {
-      const litersPerTick = state.flow.literPerMin / 60; // per second
-      state.flow.totalLiters += litersPerTick;
-      state.flow.pulseCount += Math.round(litersPerTick * PULSES_PER_LITER);
-      state.flow.ledOn = !state.flow.ledOn; // toggle to simulate pulse blink
-    } else {
-      state.flow.ledOn = false;
-    }
-    broadcast(snapshot());
-  }, 1000);
+function tick() {
+  state.clock = new Date();
+  if (state.pumpOn && state.literPerMin > 0) {
+    state.cycle.active = true;
+    state.cycle.litersDelivered += state.literPerMin / 60;
+  }
 }
 
-function snapshot() {
+function startFlowLoop(onTick) {
+  setInterval(() => { tick(); onTick(); }, 1000);
+}
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+function buildStatusJSON() {
+  const c = state.clock;
   return {
-    deviceId: state.deviceId,
-    relay: state.relay,
-    wifi: state.wifi,
-    flow: {
-      literPerMin: state.flow.literPerMin,
-      totalLiters: Number(state.flow.totalLiters.toFixed(3)),
-      pulseCount: state.flow.pulseCount,
-      ledOn: state.flow.ledOn,
-    },
-    activeCycle: state.activeCycle,
-    cycles: state.cycles,
-    leds: state.leds,
-    clock: state.clock.toISOString(),
+    device_id: state.deviceId,
+    firmware: state.firmware,
+    pump_on: state.pumpOn,
+    rtc_time: `${pad(c.getHours())}:${pad(c.getMinutes())}:${pad(c.getSeconds())}`,
+    rtc_date: `${pad(c.getDate())}/${pad(c.getMonth() + 1)}/${c.getFullYear()}`,
+    rtc_set: state.rtcSet,
+    wifi_rssi: state.wifiConnected ? -55 : 0,
+    wifi_connected: state.wifiConnected,
+    mqtt_connected: state.mqttConnected,
+    cycle_active: state.cycle.active,
+    cycle_paused: state.cycle.paused,
+    cycle_id: state.cycle.cycleId,
+    liters_delivered: Number(state.cycle.litersDelivered.toFixed(3)),
+    started_by: state.cycle.startedBy,
   };
 }
 
-function setRelay(on) {
-  state.relay.on = on;
-  state.relay.sinceMs = Date.now();
-  return snapshot();
+function setWifiConfig(ssid, pass) {
+  state.savedWifi = { ssid, pass };
+  // simulate the real connect delay + outcome, same as firmware's onWiFiConfig
+  setTimeout(() => { state.wifiConnected = true; }, 2000);
+  return true;
 }
 
-function setFlowRate(literPerMin) {
-  state.flow.literPerMin = Math.max(0, Number(literPerMin) || 0);
-  return snapshot();
+function setMqttConfig(broker, port, user, pass) {
+  state.savedMqtt = { broker, port, user, pass };
+  setTimeout(() => { state.mqttConnected = true; }, 1000);
+  return true;
 }
 
-function injectPulse() {
-  state.flow.pulseCount += 1;
-  state.flow.totalLiters += 1 / PULSES_PER_LITER;
-  return snapshot();
+function setRtcSync(unixSeconds) {
+  state.clock = new Date(unixSeconds * 1000);
+  state.rtcSet = true;
+  return true;
 }
 
-function resetTotals() {
-  state.flow.totalLiters = 0;
-  state.flow.pulseCount = 0;
-  return snapshot();
+function setCalibration(ppl) {
+  state.calibrationPPL = ppl;
+  return true;
 }
 
-function setWifi(status) {
-  state.wifi.status = status;
-  state.wifi.ledPattern =
-    status === 'connected' ? 'solid' : status === 'connecting' ? 'blink_fast' : 'blink_slow';
-  const led = state.leds.find((l) => l.id === 'wifi_led');
-  if (led) led.state = state.wifi.ledPattern;
-  return snapshot();
+function relayTest() {
+  state.pumpOn = true;
+  setTimeout(() => { state.pumpOn = false; }, 5000); // mirrors relay.testPulse(5000) in firmware
+  return true;
 }
 
-function addCycle(cycle) {
-  cycle.id = cycle.id || `cyc_${Date.now()}`;
-  state.cycles.push(cycle);
-  return snapshot();
+function factoryReset() {
+  state.savedWifi = null;
+  state.savedMqtt = null;
+  state.wifiConnected = false;
+  state.mqttConnected = false;
+  state.cycle = { active: false, paused: false, cycleId: 255, litersDelivered: 0, startedBy: 'none' };
+  return true;
 }
 
-function removeCycle(id) {
-  state.cycles = state.cycles.filter((c) => c.id !== id);
-  return snapshot();
+function wifiScan() {
+  // fake nearby networks — matches WiFiScanner.cpp's o["ssid"]=WiFi.SSID(i) shape
+  return [
+    { ssid: 'HomeWiFi_5G', rssi: -42 },
+    { ssid: 'HomeWiFi_2G', rssi: -48 },
+    { ssid: 'Neighbour_Router', rssi: -71 },
+  ];
 }
 
-function addLed({ id, label, gpio }) {
-  if (state.leds.find((l) => l.id === id)) return snapshot();
-  state.leds.push({ id, label, gpio, state: 'off' });
-  return snapshot();
-}
+// Dashboard-only manual controls (not part of the real device API)
+function setRelay(on) { state.pumpOn = on; return buildStatusJSON(); }
+function setFlowRate(literPerMin) { state.literPerMin = Math.max(0, Number(literPerMin) || 0); return buildStatusJSON(); }
+function resetTotals() { state.cycle.litersDelivered = 0; return buildStatusJSON(); }
 
 module.exports = {
-  state,
-  snapshot,
-  startFlowLoop,
-  setRelay,
-  setFlowRate,
-  injectPulse,
-  resetTotals,
-  setWifi,
-  addCycle,
-  removeCycle,
-  addLed,
+  state, buildStatusJSON, startFlowLoop,
+  setWifiConfig, setMqttConfig, setRtcSync, setCalibration, relayTest, factoryReset, wifiScan,
+  setRelay, setFlowRate, resetTotals,
 };
