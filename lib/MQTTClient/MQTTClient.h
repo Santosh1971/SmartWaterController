@@ -8,7 +8,8 @@
 
 class MQTTHandler {
 public:
-    void begin();
+    // broker/user/pass are copied internally, so caller's buffers can go out of scope after this call
+    void begin(const char* broker, uint16_t port, const char* user, const char* pass);
     void loop();
     bool isConnected();
 
@@ -27,4 +28,9 @@ private:
     WiFiClient   _wifiClient;
     PubSubClient _mqtt;
     uint32_t     _lastReconnectAttempt = 0;
+
+    char     _broker[128] = {0};
+    uint16_t _port        = 1883;
+    char     _user[64]    = {0};
+    char     _pass[64]    = {0};
 };

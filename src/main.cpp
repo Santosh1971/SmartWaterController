@@ -319,7 +319,16 @@ void setup() {
         }
     };
 
-    mqtt.begin();
+// Load MQTT config from NVS (set via BLE); fall back to Config.h defaults on first boot
+    char mqttBroker[128], mqttUser[64], mqttPass[64];
+    uint16_t mqttPort;
+    if (nvs.loadMQTT(mqttBroker, mqttPort, mqttUser, mqttPass) && strlen(mqttBroker) > 0) {
+        Serial.printf("[MQTT] Using saved config: %s:%d\n", mqttBroker, mqttPort);
+        mqtt.begin(mqttBroker, mqttPort, mqttUser, mqttPass);
+    } else {
+        Serial.println("[MQTT] No saved config — using Config.h defaults");
+        mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS);
+    }
     Serial.println("[BOOT] Setup complete");
 }
 
