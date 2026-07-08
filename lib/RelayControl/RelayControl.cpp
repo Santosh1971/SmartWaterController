@@ -37,9 +37,20 @@ bool RelayControl::isOn() {
     return _state;
 }
 
+// Non-blocking: turns the relay on now, arms a millis()-based deadline,
+// and returns immediately. loop() (called every main-loop iteration)
+// turns it back off once the deadline passes — no delay() in the caller's
+// path, so LEDs/WS/scheduler keep running during the test pulse.
 void RelayControl::testPulse(uint16_t durationMs) {
-    Serial.printf("[RELAY] Test pulse %dms\n", durationMs);
+    Serial.printf("[RELAY] Test pulse %dms (non-blocking)\n", durationMs);
     on();
-    delay(durationMs);
-    off();
+    _testPulseActive = true;
+    _testPulseOffAt  = millis() + durationMs;
+}
+
+void RelayControl::loop() {
+    if (_testPulseActive && (int32_t)(millis() - _testPulseOffAt) >= 0) {
+        _testPulseActive = false;
+        off();
+    }
 }
