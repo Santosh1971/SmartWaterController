@@ -4,7 +4,7 @@
 
 class RelayControl {
 public:
-    void begin(uint8_t pin);
+    void begin(uint8_t pin, uint8_t ledPin = 255);  // 255 = no LED wired
     void on();
     void off();
     bool isOn();
@@ -12,5 +12,7 @@ public:
 
 private:
     uint8_t _pin;
+    uint8_t _ledPin = 255;
+    bool _hasLed = false;
     bool _state = false;
 };

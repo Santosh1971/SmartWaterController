@@ -20,12 +20,18 @@
 #define MQTT_TOPIC_ACTIVE   "swc/" DEVICE_ID "/active_cycle"
 #define MQTT_TOPIC_CYCLES   "swc/" DEVICE_ID "/cycles"
 #define MQTT_TOPIC_CMD      "swc/" DEVICE_ID "/command"
+// ---------- WiFi fallback (SoftAP, no field WiFi available) ----------
+#define SOFTAP_SSID             DEVICE_ID
+#define SOFTAP_PASSWORD         "water1234"  // TODO: derive per-device password for production
+#define WIFI_CONNECT_TIMEOUT_MS 15000        // boot-time connect attempt
+#define WIFI_RETRY_INTERVAL_MS  60000        // background retry while in fallback
 
 // ---------- GPIO ----------
-#define RELAY_PIN           18
+#define RELAY_PIN           23    // S2 Flow sensor 
+#define RELAY_LED_PIN       18    // RS485 LED
 #define FLOW_SENSOR_PIN     4
-#define FLOW_SENSOR_LED_PIN 14
-#define WIFI_LED_PIN        26
+#define FLOW_SENSOR_LED_PIN 14   // S1 Sensor LED - Green 
+#define WIFI_LED_PIN        26  // S4/WiFi  LED - Blue
 #define I2C_SDA             21
 #define I2C_SCL             22
 

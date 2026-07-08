@@ -24,6 +24,9 @@ WiFiScanner  wifiScanner;
 
 uint32_t lastStatusPublish = 0;
 uint32_t lastWiFiCheck     = 0;
+uint32_t lastWiFiRetry     = 0;
+enum ConnMode { CONN_UNKNOWN, CONN_CLOUD, CONN_LOCAL_FALLBACK };
+ConnMode connMode = CONN_UNKNOWN;
 
 void IRAM_ATTR flowISR() {
     flowSensor.pulseISR();
@@ -100,6 +103,45 @@ void syncNTP() {
     }
 }
 
+// Shared success handler — called both on initial boot connect and on
+// background recovery from local fallback mode.
+void onWiFiConnected() {
+    Serial.printf("[WiFi] Connected — IP: %s\n",
+        WiFi.localIP().toString().c_str());
+    syncNTP();
+    ble.stopAdvertising();
+    connMode = CONN_CLOUD;
+}
+
+// Attempts to connect using saved credentials, blocking up to timeoutMs.
+// Returns true on success. Safe to call repeatedly (e.g. periodic retries).
+bool tryConnectSTA(uint32_t timeoutMs) {
+    char ssid[64], pass[64];
+    if (!nvs.loadWiFi(ssid, pass)) {
+        return false;  // no saved credentials at all
+    }
+    WiFi.begin(ssid, pass);
+    uint32_t start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+        delay(500);
+    }
+    return WiFi.status() == WL_CONNECTED;
+}
+
+// Starts the device's own WiFi hotspot for local-only control when no
+// field WiFi is reachable. Uses AP+STA concurrently (not AP-only) so
+// background STA reconnect attempts (see loop()) don't require tearing
+// down the hotspot first — anyone connected locally stays connected
+// during a retry attempt.
+void startLocalFallback() {
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(SOFTAP_SSID, SOFTAP_PASSWORD);
+    connMode = CONN_LOCAL_FALLBACK;
+    lastWiFiRetry = millis();
+    Serial.printf("[WiFi] Local fallback active — SSID: %s  IP: %s\n",
+        SOFTAP_SSID, WiFi.softAPIP().toString().c_str());
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("[BOOT] SmartWaterController starting...");
@@ -115,7 +157,7 @@ void setup() {
     leds.setWiFiState(WIFI_LED_SEARCHING);
     nvs.begin();
     rtc.begin();
-    relay.begin(RELAY_PIN);
+    relay.begin(RELAY_PIN, RELAY_LED_PIN);
     flowSensor.begin(FLOW_SENSOR_PIN);
     flowSensor.setCalibration(nvs.loadCalibration());
     attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_PIN), flowISR, RISING);
@@ -179,27 +221,15 @@ void setup() {
 
     ble.begin();
 
-    // WiFi
-    char ssid[64], pass[64];
-    if (nvs.loadWiFi(ssid, pass)) {
-        Serial.printf("[WiFi] Connecting to saved: %s\n", ssid);
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(ssid, pass);
+    // WiFi — connect if credentials exist, else fall back to local
+    // SoftAP so the device is still controllable if no field WiFi is
+    // reachable (or none was ever configured).
+    WiFi.mode(WIFI_STA);
+    if (tryConnectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
+        onWiFiConnected();
     } else {
-        Serial.println("[WiFi] No credentials — configure via BLE");
-    }
-
-    // Wait for WiFi and sync NTP
-    int wifiWait = 0;
-    while (WiFi.status() != WL_CONNECTED && wifiWait < 20) {
-        delay(500);
-        wifiWait++;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("[WiFi] Connected — IP: %s\n",
-            WiFi.localIP().toString().c_str());
-        syncNTP();
-        ble.stopAdvertising();
+        Serial.println("[WiFi] Could not connect — starting local fallback (SoftAP)");
+        startLocalFallback();
     }
 
     // MQTT callbacks
@@ -341,6 +371,23 @@ void loop() {
     if (millis() - lastWiFiCheck >= 2000) {
         lastWiFiCheck = millis();
         updateWiFiLED();
+    }
+
+    // While in local fallback, periodically retry the saved WiFi in the
+    // background — the SoftAP stays up throughout (AP+STA concurrent),
+    // so anyone connected locally isn't disrupted during a retry attempt.
+    if (connMode == CONN_LOCAL_FALLBACK &&
+        millis() - lastWiFiRetry >= WIFI_RETRY_INTERVAL_MS) {
+        lastWiFiRetry = millis();
+        Serial.println("[WiFi] Local fallback active — retrying saved WiFi...");
+        if (tryConnectSTA(8000)) {
+            Serial.println("[WiFi] Reconnected — leaving local fallback");
+            WiFi.softAPdisconnect(true);
+            WiFi.mode(WIFI_STA);
+            onWiFiConnected();
+        } else {
+            Serial.println("[WiFi] Still no WiFi — staying in local fallback");
+        }
     }
 
     if (millis() - lastStatusPublish >= STATUS_PUBLISH_INTERVAL_MS) {
