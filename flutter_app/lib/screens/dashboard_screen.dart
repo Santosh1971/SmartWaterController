@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
 import '../models/device_status.dart';
-import '../services/mqtt_service.dart';
+import '../services/device_service.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -20,15 +20,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _connect() async {
-    setState(() => _status = 'Connecting to broker...');
-    final ok = await ref.read(mqttServiceProvider).connect();
+    setState(() => _status = 'Connecting...');
+    final ok = await ref.read(deviceServiceProvider).connect();
     setState(() => _status = ok ? 'Waiting for device...' : 'Connection failed — retry');
   }
 
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(deviceStatusProvider);
-    final mqtt = ref.read(mqttServiceProvider);
+    final mqtt = ref.read(deviceServiceProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -70,7 +70,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ]),
   );
 
-  Widget _buildDashboard(DeviceStatus s, MqttService mqtt) {
+  Widget _buildDashboard(DeviceStatus s, DeviceService mqtt) {
     return RefreshIndicator(
       onRefresh: () async => _connect(),
       child: ListView(
@@ -291,7 +291,7 @@ class _InfoCard extends StatelessWidget {
 // ── Active Cycle Card ─────────────────────────────────────
 class _ActiveCycleCard extends StatelessWidget {
   final DeviceStatus status;
-  final MqttService mqtt;
+  final DeviceService mqtt;
   const _ActiveCycleCard({required this.status, required this.mqtt});
 
   @override

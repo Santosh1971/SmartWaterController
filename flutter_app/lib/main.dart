@@ -52,10 +52,11 @@ class _MainShellState extends ConsumerState<MainShell> {
     // Keep screen awake while app is in foreground — testing/monitoring
     // an active irrigation cycle shouldn't be interrupted by screen sleep.
     WakelockPlus.enable();
-    // Auto-connect MQTT on startup
+    // Auto-connect to the active transport (local SoftAP by default,
+    // or cloud/MQTT if the user switched modes in Settings) on startup
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final mqtt = ref.read(mqttServiceProvider);
-      await mqtt.connect();
+      final device = ref.read(deviceServiceProvider);
+      await device.connect();
     });
   }
   @override

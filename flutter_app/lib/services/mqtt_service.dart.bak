@@ -13,7 +13,7 @@ class MqttService implements DeviceService {
   // (87.76.191.157, see Config.h / NVS mqtt_config) — flagged during the
   // SoftAP/local-transport work, not yet resolved. Confirm which is
   // correct before relying on cloud mode.
-  static const String _broker   = 'mqtt.grty.co.in'; // no auth
+  static const String _broker   = '140.245.201.215';
   static const int    _port     = 1883;
   static const String _deviceId = 'SWC_001';
 

@@ -10,11 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # BLE
-  flutter_blue_plus: ^1.35.3
-  
-  # MQTT
+  # MQTT (cloud transport)
   mqtt_client: ^10.5.1
+
+  # Local WebSocket transport (SoftAP)
+  web_socket_channel: ^3.0.1
   
   # State management
   flutter_riverpod: ^2.6.1

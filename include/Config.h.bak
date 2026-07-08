@@ -11,7 +11,7 @@
 #define BLE_CHAR_TX_UUID        "12345678-1234-1234-1234-123456789abe"
 
 // ---------- MQTT ----------
-#define MQTT_BROKER         "mqtt.grty.co.in"
+#define MQTT_BROKER         "87.76.191.157"  //"mqtt.grty.co.in"
 #define MQTT_PORT           1883
 #define MQTT_USER           ""
 #define MQTT_PASS           ""

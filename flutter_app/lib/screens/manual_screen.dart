@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
-import '../services/mqtt_service.dart';
 
 class ManualScreen extends ConsumerStatefulWidget {
   const ManualScreen({super.key});
@@ -21,7 +20,7 @@ class _ManualScreenState extends ConsumerState<ManualScreen> {
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(deviceStatusProvider);
-    final mqtt = ref.read(mqttServiceProvider);
+    final mqtt = ref.read(deviceServiceProvider);
     final pumpOn = statusAsync.maybeWhen(
         data: (s) => s.pumpOn, orElse: () => false);
 

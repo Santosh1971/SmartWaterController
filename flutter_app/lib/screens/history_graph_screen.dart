@@ -36,7 +36,7 @@ class _HistoryGraphScreenState extends ConsumerState<HistoryGraphScreen> {
     _entries    = widget.initialEntries;
     _rangeStart = widget.initialRangeStart;
     _rangeEnd   = widget.initialRangeEnd;
-    _sub = ref.read(mqttServiceProvider).historyStream.listen((entries) {
+    _sub = ref.read(deviceServiceProvider).historyStream.listen((entries) {
       if (mounted) setState(() { _entries = entries; _loading = false; });
     });
   }
@@ -49,7 +49,7 @@ class _HistoryGraphScreenState extends ConsumerState<HistoryGraphScreen> {
 
   void _fetchRange(DateTime start, DateTime end) {
     setState(() { _loading = true; _rangeStart = start; _rangeEnd = end; });
-    ref.read(mqttServiceProvider).getHistoryRange(start, end);
+    ref.read(deviceServiceProvider).getHistoryRange(start, end);
   }
 
   void _selectWeek() {

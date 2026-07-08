@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/providers.dart';
 import '../models/history_entry.dart';
 import '../models/cycle.dart';
-import '../services/mqtt_service.dart';
 import 'history_graph_screen.dart';
 
 const String _kHistoryCacheKey = 'cached_history';
@@ -29,9 +28,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     _loadFromCache();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final now = DateTime.now();
-      ref.read(mqttServiceProvider)
+      ref.read(deviceServiceProvider)
           .getHistoryRange(now.subtract(const Duration(days: 30)), now);
-      ref.read(mqttServiceProvider).historyStream.listen((entries) {
+      ref.read(deviceServiceProvider).historyStream.listen((entries) {
         if (mounted) setState(() { _entries = entries; _loading = false; });
         _saveToCache(entries);
       });

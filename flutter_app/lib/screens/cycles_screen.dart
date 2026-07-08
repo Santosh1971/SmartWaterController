@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/providers.dart';
 import '../models/cycle.dart';
-import '../services/mqtt_service.dart';
 import 'add_cycle_screen.dart';
 
 const String _kCyclesCacheKey = 'cached_cycles';
@@ -27,7 +26,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     _requestCycles();
     // Listen to cycles stream
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(mqttServiceProvider).cyclesStream.listen((cycles) {
+      ref.read(deviceServiceProvider).cyclesStream.listen((cycles) {
         if (mounted) setState(() { _cycles = cycles; _loading = false; });
         _saveToCache(cycles);
       });
@@ -60,7 +59,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
   void _requestCycles() {
     // Only show the spinner if we have nothing to show yet (no cache hit)
     if (_cycles.isEmpty) setState(() => _loading = true);
-    ref.read(mqttServiceProvider).getCycles();
+    ref.read(deviceServiceProvider).getCycles();
     // Timeout loading after 3 seconds — fall back to whatever we have (cache or empty)
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted && _loading) setState(() => _loading = false);
@@ -77,7 +76,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
                     setState(() => _cycles = updatedCycles);
                     _saveToCache(updatedCycles);
                     // Send to device
-                    ref.read(mqttServiceProvider).setCycles(updatedCycles);
+                    ref.read(deviceServiceProvider).setCycles(updatedCycles);
                   },
                 )));
     // Refresh after returning
@@ -89,7 +88,7 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     updated[index] = _cycles[index].copyWith(enabled: val);
     setState(() => _cycles = updated);
     _saveToCache(updated);
-    ref.read(mqttServiceProvider).setCycles(updated);
+    ref.read(deviceServiceProvider).setCycles(updated);
   }
 
   @override
