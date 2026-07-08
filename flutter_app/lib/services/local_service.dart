@@ -57,6 +57,8 @@ class LocalService implements DeviceService {
 
   @override
   Future<bool> connect() async {
+    if (_connected && _channel != null) return true; // already connected — don't tear down a working socket
+
     try { await _channel?.sink.close(); } catch (_) {}
     _sub?.cancel();
 

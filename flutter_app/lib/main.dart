@@ -67,7 +67,15 @@ class _MainShellState extends ConsumerState<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_currentIndex],
+      // IndexedStack keeps all screens mounted (just toggles visibility)
+      // instead of destroying/recreating them on every tab switch. That
+      // matters a lot here: DashboardScreen's initState() opens a
+      // connection — with the old body: _screens[_currentIndex] approach,
+      // navigating away and back tore down and reopened the WebSocket
+      // every single time, which is why the local (SoftAP) transport in
+      // particular showed flickering "Offline" status even though it was
+      // actually reconnecting fine each time.
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),

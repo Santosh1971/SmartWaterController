@@ -11,23 +11,23 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  String _status = 'Connecting...';
-
-  @override
-  void initState() {
-    super.initState();
-    _connect();
-  }
+  // No initState()-driven connect() here anymore — main.dart's MainShell
+  // already connects once at app startup, and IndexedStack keeps this
+  // screen's State alive across tab switches now, so there's no need to
+  // (and no good moment to safely) reconnect every time this becomes
+  // visible again. _connect() is still available as a manual retry.
+  bool _retrying = false;
 
   Future<void> _connect() async {
-    setState(() => _status = 'Connecting...');
-    final ok = await ref.read(deviceServiceProvider).connect();
-    setState(() => _status = ok ? 'Waiting for device...' : 'Connection failed — retry');
+    setState(() => _retrying = true);
+    await ref.read(deviceServiceProvider).connect();
+    if (mounted) setState(() => _retrying = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(deviceStatusProvider);
+    final connectedAsync = ref.watch(deviceConnectedProvider);
     final mqtt = ref.read(deviceServiceProvider);
 
     return Scaffold(
@@ -48,16 +48,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       body: statusAsync.maybeWhen(
         data: (s) => _buildDashboard(s, mqtt),
-        orElse: () => _buildLoading(),
+        orElse: () => _buildLoading(connectedAsync),
       ),
     );
   }
 
-  Widget _buildLoading() => Center(
+  Widget _buildLoading(AsyncValue<bool> connectedAsync) {
+    final connected = connectedAsync.maybeWhen(data: (c) => c, orElse: () => false);
+    final label = _retrying
+        ? 'Connecting...'
+        : connected
+            ? 'Waiting for device...'
+            : 'Not connected — retry?';
+    return Center(
     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       const Icon(Icons.water_drop_outlined, size: 64, color: Color(0xFF2196F3)),
       const SizedBox(height: 24),
-      Text(_status, style: const TextStyle(color: Colors.grey, fontSize: 16)),
+      Text(label, style: const TextStyle(color: Colors.grey, fontSize: 16)),
       const SizedBox(height: 16),
       const CircularProgressIndicator(color: Color(0xFF2196F3)),
       const SizedBox(height: 24),
@@ -67,8 +74,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         label: const Text('Retry'),
         style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
       ),
-    ]),
-  );
+    ]));
+  }
 
   Widget _buildDashboard(DeviceStatus s, DeviceService mqtt) {
     return RefreshIndicator(
