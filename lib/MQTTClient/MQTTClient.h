@@ -8,8 +8,18 @@
 
 class MQTTHandler {
 public:
-    // broker/user/pass are copied internally, so caller's buffers can go out of scope after this call
-    void begin(const char* broker, uint16_t port, const char* user, const char* pass);
+    // broker/user/pass are copied internally, so caller's buffers can go out of scope after this call.
+    // deviceId is used to build the MQTT client ID and all topic strings at
+    // runtime. NOTE: intentionally still the fixed base "SWC_001" here (see
+    // main.cpp's mqtt.begin() call), NOT the MAC-suffixed per-device ID —
+    // the Flutter app hardcodes 'swc/SWC_001/...' for its own MQTT
+    // subscriptions, so topics must stay on that fixed base or the app
+    // would silently stop receiving anything over Cloud mode. The
+    // MAC-suffixed ID is used elsewhere (SoftAP name, the display-only
+    // device_id status field) where there's no such compatibility
+    // constraint.
+    void begin(const char* broker, uint16_t port, const char* user, const char* pass,
+               const String& deviceId);
     void loop();
     bool isConnected();
 
@@ -33,4 +43,7 @@ private:
     uint16_t _port        = 1883;
     char     _user[64]    = {0};
     char     _pass[64]    = {0};
+
+    String _deviceId;
+    String _topicStatus, _topicHistory, _topicActive, _topicCycles, _topicCmd;
 };

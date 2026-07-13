@@ -15,11 +15,11 @@
 #define MQTT_PORT           1883
 #define MQTT_USER           ""
 #define MQTT_PASS           ""
-#define MQTT_TOPIC_STATUS   "swc/" DEVICE_ID "/status"
-#define MQTT_TOPIC_HISTORY  "swc/" DEVICE_ID "/history"
-#define MQTT_TOPIC_ACTIVE   "swc/" DEVICE_ID "/active_cycle"
-#define MQTT_TOPIC_CYCLES   "swc/" DEVICE_ID "/cycles"
-#define MQTT_TOPIC_CMD      "swc/" DEVICE_ID "/command"
+// Topics are now built at runtime in MQTTClient.cpp from the actual
+// per-device ID (see computeDeviceId() in main.cpp) — these used to be
+// fixed here at compile time as "swc/SWC_001/...", which every physical
+// device shared identically, a real collision risk with more than one
+// unit in Cloud mode at once.
 // ---------- WiFi fallback (SoftAP, no field WiFi available) ----------
 #define SOFTAP_SSID             DEVICE_ID
 #define SOFTAP_PASSWORD         "water1234"  // TODO: derive per-device password for production
@@ -41,7 +41,14 @@
 // ---------- Scheduler ----------
 #define MAX_CYCLES          4
 #define NVS_NAMESPACE       "swc"
-#define HISTORY_MAX_ENTRIES 200  // ~1 month at moderate use (5 events/day)
+// Packed into a single NVS blob (~sizeof(HistoryEntry) * this many bytes,
+// roughly 68 bytes/entry). NVS partition here is only ~20KB total shared
+// with cycles/WiFi/MQTT/running-state, and NVS itself needs headroom
+// beyond the partition's nominal size for its own page/wear-leveling
+// bookkeeping — 200 entries (~13KB) left too little margin and caused
+// real "NOT_ENOUGH_SPACE" failures in testing. 60 entries (~4KB) leaves
+// comfortable room; still ~12 days of history at 5 events/day.
+#define HISTORY_MAX_ENTRIES 60   // ~12 days at moderate use (5 events/day)
 
 // ---------- Timing ----------
 #define STATUS_PUBLISH_INTERVAL_MS   5000

@@ -108,13 +108,11 @@ class _HistoryGraphScreenState extends ConsumerState<HistoryGraphScreen> {
     final labelStep = totals.length > 10 ? 7 : 1;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Colors.black87),
-        title: const Text('Water Usage Trend',
-            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+        leading: BackButton(color: Theme.of(context).colorScheme.onSurface),
+        title: Text('Water Usage Trend',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: Padding(
@@ -134,7 +132,7 @@ class _HistoryGraphScreenState extends ConsumerState<HistoryGraphScreen> {
             ]),
             const SizedBox(height: 16),
             Text('${_fmtDate(startDay)} – ${_fmtDate(_rangeEnd)}',
-                style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 4),
             Row(children: [
               Text('Avg ${average.toStringAsFixed(1)} L/day',
@@ -151,8 +149,8 @@ class _HistoryGraphScreenState extends ConsumerState<HistoryGraphScreen> {
                   ? const Center(child: CircularProgressIndicator(
                       color: Color(0xFF2196F3)))
                   : !hasData
-                      ? const Center(child: Text('No data in this period',
-                          style: TextStyle(color: Colors.grey)))
+                      ? Center(child: Text('No data in this period',
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)))
                       : BarChart(
                           BarChartData(
                             minY: 0,

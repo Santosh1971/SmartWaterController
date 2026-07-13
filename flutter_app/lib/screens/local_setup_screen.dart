@@ -24,10 +24,6 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
 
   final _wifiSsidCtrl = TextEditingController();
   final _wifiPassCtrl = TextEditingController();
-  final _mqttBrokerCtrl = TextEditingController(text: '87.76.191.157');
-  final _mqttPortCtrl = TextEditingController(text: '1883');
-  final _mqttUserCtrl = TextEditingController();
-  final _mqttPassCtrl = TextEditingController();
   final _calibrationCtrl = TextEditingController(text: '450');
 
   @override
@@ -35,12 +31,19 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
     _respSub?.cancel();
     _wifiSsidCtrl.dispose();
     _wifiPassCtrl.dispose();
-    _mqttBrokerCtrl.dispose();
-    _mqttPortCtrl.dispose();
-    _mqttUserCtrl.dispose();
-    _mqttPassCtrl.dispose();
     _calibrationCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-connect (idempotent — instant no-op if the Dashboard already
+    // has this connection open). Previously this screen required an
+    // explicit tap on "Connect" even when the app was already talking to
+    // the device elsewhere, which looked like every button here was
+    // broken if you didn't happen to tap it first.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
   }
 
   Future<void> _connect() async {
@@ -83,12 +86,10 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Local Device Setup',
-            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+        title: Text('Local Device Setup',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600)),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -140,40 +141,30 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
           ])),
           const SizedBox(height: 16),
 
-          _sectionTitle('MQTT Broker'),
-          _card(child: Column(children: [
-            TextField(controller: _mqttBrokerCtrl,
-                decoration: const InputDecoration(labelText: 'Broker host/IP')),
-            const SizedBox(height: 8),
-            TextField(controller: _mqttPortCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Port')),
-            const SizedBox(height: 8),
-            TextField(controller: _mqttUserCtrl,
-                decoration: const InputDecoration(labelText: 'Username (optional)')),
-            const SizedBox(height: 8),
-            TextField(controller: _mqttPassCtrl, obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password (optional)')),
-            const SizedBox(height: 12),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: () => _send({
-                'cmd': 'mqtt_config',
-                'broker': _mqttBrokerCtrl.text,
-                'port': int.tryParse(_mqttPortCtrl.text) ?? 1883,
-                'user': _mqttUserCtrl.text,
-                'pass': _mqttPassCtrl.text,
-              }),
-              child: const Text('Save MQTT Config (reboot to apply)'),
-            )),
-          ])),
-          const SizedBox(height: 16),
+          // MQTT broker config UI intentionally removed — mqtt.grty.co.in
+          // is now the fixed broker for both firmware and app, not a
+          // user-changeable setting. The device's mqtt_config command
+          // still exists in firmware for direct use (e.g. via curl) if
+          // it's ever needed, just not exposed here.
 
           _sectionTitle('Device Time'),
           _card(child: SizedBox(width: double.infinity, child: ElevatedButton.icon(
-            onPressed: () => _send({
-              'cmd': 'rtc_sync',
-              'unix': DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000,
-            }),
+            onPressed: () {
+              final now = DateTime.now();
+              // Same encoding as _deviceEpoch() in mqtt_service.dart/
+              // local_service.dart: re-interpret the phone's local
+              // wall-clock fields AS IF they were UTC, rather than a true
+              // UTC conversion (.toUtc()). The firmware's DS3231 stores
+              // IST wall-clock fields directly, so it expects this
+              // encoding — a real UTC conversion shifted the synced time
+              // by the IST offset (5.5 hours), which is exactly the bug
+              // this fixes (22:17 IST was landing on the device as 16:47).
+              final deviceEpoch = DateTime.utc(
+                now.year, now.month, now.day,
+                now.hour, now.minute, now.second,
+              ).millisecondsSinceEpoch ~/ 1000;
+              _send({'cmd': 'rtc_sync', 'unix': deviceEpoch});
+            },
             icon: const Icon(Icons.access_time),
             label: const Text('Sync Time From Phone'),
           ))),
@@ -256,7 +247,7 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
   Widget _sectionTitle(String text) => Padding(
     padding: const EdgeInsets.only(left: 4, bottom: 8),
     child: Text(text.toUpperCase(),
-        style: const TextStyle(color: Colors.grey, fontSize: 11,
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11,
             fontWeight: FontWeight.w600, letterSpacing: 0.5)),
   );
 
@@ -264,7 +255,7 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
     width: double.infinity,
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(12),
       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
           blurRadius: 8, offset: const Offset(0, 2))],
@@ -282,7 +273,7 @@ class _LocalSetupScreenState extends ConsumerState<LocalSetupScreen> {
         Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
       ]),
       const SizedBox(height: 8),
-      Text(body, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+      Text(body, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
       if (trailing != null) ...[
         const SizedBox(height: 12),
         trailing,

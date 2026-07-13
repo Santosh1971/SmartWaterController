@@ -76,4 +76,11 @@ public:
 
 private:
     Preferences _prefs;
+    // Shared scratch buffer for the packed history blob (see .cpp) — one
+    // member-owned buffer rather than a function-local static in each of
+    // addHistoryEntry/getHistory/getHistoryInRange, since all three need
+    // the same ~12.5KB working set and there's no benefit to duplicating it.
+    HistoryEntry _historyBuf[HISTORY_MAX_ENTRIES];
+    void _loadHistoryBlob();
+    void _saveHistoryBlob();
 };

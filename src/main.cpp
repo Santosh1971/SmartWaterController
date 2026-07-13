@@ -23,11 +23,19 @@ LEDManager   leds;
 WiFiScanner  wifiScanner;
 
 uint32_t lastStatusPublish = 0;
+bool     lastPumpState     = false;
 uint32_t lastWiFiCheck     = 0;
 uint32_t lastWiFiRetry     = 0;
 enum ConnMode { CONN_UNKNOWN, CONN_CLOUD, CONN_LOCAL_FALLBACK };
 ConnMode connMode = CONN_UNKNOWN;
 String   apSsid;   // set once startLocalFallback() runs — MAC-suffixed, unique per device
+String   deviceId;  // computed once in setup() — same MAC-suffixed value used for apSsid
+// Set by the force_local_mode command — lets someone deliberately test
+// SoftAP mode (e.g. "how does this behave locally?") without needing to
+// actually turn off their router. While true, the normal automatic
+// reconnect/leave-fallback logic is suppressed; resume_auto_mode (or a
+// power cycle) turns it back off.
+bool     forcedLocalMode = false;
 
 // Non-blocking background WiFi retry state (used only for the periodic
 // retry while in local fallback — the one-time boot attempt in setup()
@@ -35,6 +43,13 @@ String   apSsid;   // set once startLocalFallback() runs — MAC-suffixed, uniqu
 // running yet at that point).
 enum RetryState { RETRY_IDLE, RETRY_CONNECTING };
 RetryState retryState     = RETRY_IDLE;
+// Set around an explicit wifi_scan — blocks the background retry from
+// starting a NEW WiFi.begin() attempt while a scan is in flight. Needed
+// because LocalServer command handling and loop() run on different
+// ESP32 cores, so just waiting before the scan (avoiding a retry already
+// in progress) wasn't enough — a fresh retry could still start mid-scan.
+// volatile since it's read/written across those two task contexts.
+volatile bool wifiScanInProgress = false;
 uint32_t   retryStartMs   = 0;
 const uint32_t RETRY_CONNECT_TIMEOUT_MS = 8000;
 
@@ -60,7 +75,7 @@ void IRAM_ATTR flowISR() {
 
 String buildStatusJSON() {
     JsonDocument doc;
-    doc["device_id"]        = DEVICE_ID;
+    doc["device_id"]        = deviceId;
     doc["firmware"]         = FIRMWARE_VERSION;
     doc["pump_on"]          = relay.isOn();
     doc["rtc_time"]         = rtc.getTimeString();
@@ -70,6 +85,7 @@ String buildStatusJSON() {
     doc["wifi_connected"]   = (WiFi.status() == WL_CONNECTED);
     doc["mqtt_connected"]   = mqtt.isConnected();
     doc["conn_mode"]        = (connMode == CONN_CLOUD) ? "cloud" : "local_fallback";
+    doc["forced_local_mode"] = forcedLocalMode;
     doc["ap_ssid"]           = apSsid;
     doc["ap_active"]         = (WiFi.getMode() == WIFI_AP_STA || WiFi.getMode() == WIFI_AP);
     doc["local_clients"]     = localServer.isConnected();
@@ -79,6 +95,7 @@ String buildStatusJSON() {
     doc["cycle_id"]         = s.cycleId;
     doc["liters_delivered"] = s.litersDelivered;
     doc["started_by"]       = s.startedBy;
+    doc["cycle_start_unix"] = s.startUnix;
     String out; serializeJson(doc, out);
     return out;
 }
@@ -147,20 +164,32 @@ bool tryConnectSTA(uint32_t timeoutMs) {
     if (!nvs.loadWiFi(ssid, pass)) return false;
     WiFi.begin(ssid, pass);
     uint32_t start = millis();
+    // Service the LED state machine during this wait instead of a blind
+    // delay() — otherwise WiFi/sensor LEDs sit frozen at whatever state
+    // they were in for up to timeoutMs (15s) right at power-on, only
+    // starting to actually blink once this function returns and loop()
+    // begins. leds.loop() is cheap and just checks millis()-based timing
+    // internally, so calling it frequently here is fine.
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-        delay(500);
+        leds.loop();
+        delay(20);
     }
     return WiFi.status() == WL_CONNECTED;
 }
 
-// Derives a short unique suffix from the MAC so multiple devices' SoftAPs
-// never collide when testing/deploying several units in one place.
-String uniqueApSsid() {
+// Derives a short unique suffix from the MAC so multiple physical devices
+// are distinguishable — used for the SoftAP name, the MQTT client ID and
+// topics, and the status JSON's device_id field, all built from this same
+// value so they visibly correlate (e.g. AP "SWC_001_A1B2" <-> device_id
+// "SWC_001_A1B2"). Previously DEVICE_ID was a fixed "SWC_001" for every
+// unit, which — beyond just being unhelpful in the app UI — meant any two
+// devices both in Cloud mode would collide on the exact same MQTT topics.
+String computeDeviceId() {
     uint8_t mac[6];
     WiFi.macAddress(mac);
     char suffix[5];
     snprintf(suffix, sizeof(suffix), "%02X%02X", mac[4], mac[5]);
-    return String(SOFTAP_SSID) + "_" + suffix;
+    return String(DEVICE_ID) + "_" + suffix;
 }
 
 // Starts the device's own WiFi hotspot for local control when no field
@@ -169,7 +198,7 @@ String uniqueApSsid() {
 // locally.
 void startLocalFallback() {
     WiFi.mode(WIFI_AP_STA);
-    apSsid = uniqueApSsid();
+    apSsid = deviceId;
     WiFi.softAP(apSsid.c_str(), SOFTAP_PASSWORD);
     connMode = CONN_LOCAL_FALLBACK;
     lastWiFiRetry = millis();
@@ -213,7 +242,7 @@ void updateConnMode() {
         wifiDownSinceMs = 0;
         if (wifiUpSinceMs == 0) wifiUpSinceMs = millis();
 
-        if (connMode == CONN_LOCAL_FALLBACK &&
+        if (connMode == CONN_LOCAL_FALLBACK && !forcedLocalMode &&
             millis() - wifiUpSinceMs >= WIFI_STABLE_HOLD_MS) {
             Serial.println("[WiFi] Stable for 60s — leaving local fallback, dropping SoftAP");
             WiFi.softAPdisconnect(true);
@@ -270,7 +299,12 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
         }
         nvs.saveCycles(cycles, count);
         Serial.printf("[CMD] Saved %d cycles\n", count);
-        scheduler.begin(&nvs, &rtc, &flowSensor, &relay);
+        // reloadCycles(), NOT begin() — begin() resets running state
+        // (memset _state) without turning the relay off first, which
+        // would orphan the pump ON if cycles are edited while a manual
+        // run or scheduled cycle is active. reloadCycles() only refreshes
+        // the cycle list, leaving any in-progress run untouched.
+        scheduler.reloadCycles();
         String json = buildCyclesJSON();
         mqtt.publishCycles(json);
         localServer.publishCycles(json);
@@ -399,10 +433,69 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
         return "{}";
     }
 
-    if (cmd == "wifi_scan")   return wifiScanner.scanAsJson();
+    if (cmd == "wifi_scan") {
+        // Wait out any retry already in flight — beginBackgroundRetry()'s
+        // WiFi.begin() call occupies the radio for up to
+        // RETRY_CONNECT_TIMEOUT_MS, and scanning at the same time
+        // reliably returns WIFI_SCAN_RUNNING (-2) rather than real
+        // results (seen repeatedly in testing — a short retry loop alone
+        // wasn't enough).
+        uint32_t waitStart = millis();
+        while (retryState == RETRY_CONNECTING &&
+               millis() - waitStart < RETRY_CONNECT_TIMEOUT_MS) {
+            delay(100);
+            pollBackgroundRetry();
+        }
+        // Block a NEW retry from starting while the scan itself runs —
+        // loop() (different core) would otherwise happily start one
+        // mid-scan.
+        wifiScanInProgress = true;
+        String result = wifiScanner.scanAsJson();
+        wifiScanInProgress = false;
+        return result;
+    }
     if (cmd == "device_info") return buildStatusJSON();
 
+    if (cmd == "force_local_mode") {
+        // Deliberately test SoftAP mode without touching the router —
+        // disconnects STA and enters fallback immediately (skipping the
+        // normal 30s grace, since this is an explicit request, not a
+        // detected drop), and suppresses auto-reconnect until told
+        // otherwise.
+        Serial.println("[WiFi] force_local_mode — entering SoftAP on purpose");
+        forcedLocalMode = true;
+        WiFi.disconnect();
+        if (connMode != CONN_LOCAL_FALLBACK) startLocalFallback();
+        return "{\"msg\":\"forced into local mode\"}";
+    }
+
+    if (cmd == "resume_auto_mode") {
+        // Turns normal automatic reconnect/hysteresis back on — the
+        // background retry will pick up the saved WiFi again on its own
+        // next cycle (or immediately, since this resets the retry timer).
+        Serial.println("[WiFi] resume_auto_mode — normal reconnect behavior restored");
+        forcedLocalMode = false;
+        lastWiFiRetry = millis() - WIFI_RETRY_INTERVAL_MS;
+        return "{\"msg\":\"resuming normal auto reconnect\"}";
+    }
+
     return "{\"error\":\"unknown cmd\"}";
+}
+
+// Shared by both the event-driven trigger (pump state just changed) and
+// the periodic heartbeat (loop()) — one place that actually builds and
+// sends the status, so they can't drift out of sync with each other.
+void publishStatusNow() {
+    lastStatusPublish = millis();
+    String status = buildStatusJSON();
+    localServer.publishStatus(status);
+    if (scheduler.getCurrentState().active)
+        localServer.publishActiveCycle(status);
+    if (mqtt.isConnected()) {
+        mqtt.publishStatus(status);
+        if (scheduler.getCurrentState().active)
+            mqtt.publishActiveCycle(status);
+    }
 }
 
 void setup() {
@@ -434,6 +527,8 @@ void setup() {
     // begin(), and that task doesn't exist until WiFi.mode() has run once —
     // starting the local server first crashes with "Invalid mbox".
     WiFi.mode(WIFI_STA);
+    deviceId = computeDeviceId();
+    Serial.printf("[BOOT] Device ID: %s\n", deviceId.c_str());
     if (tryConnectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
         onWiFiConnected();
     } else {
@@ -459,10 +554,10 @@ void setup() {
     uint16_t mqttPort;
     if (nvs.loadMQTT(mqttBroker, mqttPort, mqttUser, mqttPass) && strlen(mqttBroker) > 0) {
         Serial.printf("[MQTT] Using saved config: %s:%d\n", mqttBroker, mqttPort);
-        mqtt.begin(mqttBroker, mqttPort, mqttUser, mqttPass);
+        mqtt.begin(mqttBroker, mqttPort, mqttUser, mqttPass, DEVICE_ID);
     } else {
         Serial.println("[MQTT] No saved config — using Config.h defaults");
-        mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS);
+        mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS, DEVICE_ID);
     }
     Serial.println("[BOOT] Setup complete");
 }
@@ -491,22 +586,23 @@ void loop() {
     // running normally during a retry attempt instead of freezing for
     // up to RETRY_CONNECT_TIMEOUT_MS every cycle.
     if (connMode == CONN_LOCAL_FALLBACK && retryState == RETRY_IDLE &&
+        !wifiScanInProgress && !forcedLocalMode &&
         millis() - lastWiFiRetry >= WIFI_RETRY_INTERVAL_MS) {
         lastWiFiRetry = millis();
         beginBackgroundRetry();
     }
     pollBackgroundRetry();
 
-    if (millis() - lastStatusPublish >= STATUS_PUBLISH_INTERVAL_MS) {
-        lastStatusPublish = millis();
-        String status = buildStatusJSON();
-        localServer.publishStatus(status);
-        if (scheduler.getCurrentState().active)
-            localServer.publishActiveCycle(status);
-        if (mqtt.isConnected()) {
-            mqtt.publishStatus(status);
-            if (scheduler.getCurrentState().active)
-                mqtt.publishActiveCycle(status);
-        }
+    // Immediate push the instant the pump actually changes state, instead
+    // of waiting for the next periodic tick — that's what was causing the
+    // ~5-6s lag between the relay actually switching and the app finding
+    // out (the physical action itself was never delayed, only the status
+    // update reaching the app was).
+    bool pumpNow = relay.isOn();
+    if (pumpNow != lastPumpState) {
+        lastPumpState = pumpNow;
+        publishStatusNow();
+    } else if (millis() - lastStatusPublish >= STATUS_PUBLISH_INTERVAL_MS) {
+        publishStatusNow();
     }
 }

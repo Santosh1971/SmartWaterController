@@ -84,13 +84,11 @@ class _AddCycleScreenState extends State<AddCycleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Colors.black87),
+        leading: BackButton(color: Theme.of(context).colorScheme.onSurface),
         title: Text(widget.cycle != null ? 'Edit Cycle' : 'Add Cycle',
-            style: const TextStyle(color: Colors.black87,
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
@@ -279,7 +277,7 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(12),
       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
           blurRadius: 8, offset: const Offset(0, 2))],

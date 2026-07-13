@@ -9,11 +9,7 @@ import '../models/history_entry.dart';
 import '../models/cycle.dart';
 
 class MqttService implements DeviceService {
-  // TODO: this doesn't match the firmware's configured broker
-  // (87.76.191.157, see Config.h / NVS mqtt_config) — flagged during the
-  // SoftAP/local-transport work, not yet resolved. Confirm which is
-  // correct before relying on cloud mode.
-  static const String _broker   = 'mqtt.grty.co.in'; // no auth
+  static const String _broker   = '87.76.191.157'; // mqtt.grty.co.in — no auth
   static const int    _port     = 1883;
   static const String _deviceId = 'SWC_001';
 
@@ -145,6 +141,8 @@ class MqttService implements DeviceService {
   }
 
   void manualOn()                  => _publish({'cmd': 'manual_on'});
+  @override
+  void sendRaw(Map<String, dynamic> payload) => _publish(payload);
   void manualOff()                 => _publish({'cmd': 'manual_off'});
   void manualLiters(double liters) => _publish({'cmd': 'manual_liters', 'liters': liters});
   void stopCycle()                 => _publish({'cmd': 'stop_cycle'});

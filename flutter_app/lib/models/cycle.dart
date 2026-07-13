@@ -1,3 +1,5 @@
+import '../utils/time_format.dart';
+
 enum OperationMode { literBased, timeBased, timeWindowLiter }
 
 class Cycle {
@@ -23,10 +25,8 @@ class Cycle {
     required this.enabled,
   });
 
-  String get startTimeStr =>
-      '${startHour.toString().padLeft(2,'0')}:${startMinute.toString().padLeft(2,'0')}';
-  String get endTimeStr =>
-      '${endHour.toString().padLeft(2,'0')}:${endMinute.toString().padLeft(2,'0')}';
+  String get startTimeStr => formatTime12(startHour, startMinute);
+  String get endTimeStr => formatTime12(endHour, endMinute);
   String get modeLabel => switch (mode) {
         OperationMode.literBased       => 'Liter Based',
         OperationMode.timeBased        => 'Time Based',

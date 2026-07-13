@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/device_service.dart';
@@ -10,6 +12,7 @@ import '../models/history_entry.dart';
 enum TransportMode { local, cloud }
 
 const _transportPrefsKey = 'transport_mode';
+const _themePrefsKey = 'theme_mode';
 
 // Individual transports -- both always exist; only one is "active" at a
 // time per transportModeProvider, but keeping both alive means switching
@@ -62,12 +65,50 @@ final deviceServiceProvider = Provider<DeviceService>((ref) {
       : ref.watch(mqttServiceProvider);
 });
 
-// Connection state, status, cycles, history -- all driven by whichever
-// transport is currently active. Switching transportModeProvider
-// automatically re-subscribes these to the new service.
-final deviceConnectedProvider = StreamProvider<bool>((ref) {
-  return ref.watch(deviceServiceProvider).connectedStream;
-});
+// Connection state -- debounced. LocalService's WebSocket can drop and
+// auto-reconnect within ~3s (see local_service.dart's _scheduleReconnect),
+// and commands often keep working through those brief blips — but a raw
+// connectedStream flips to false the instant the socket drops, flashing
+// "Device Offline" even though the device is actually still responding a
+// moment later. This only surfaces "offline" after being disconnected
+// continuously for longer than the auto-reconnect would need, mirroring
+// the same hysteresis principle the firmware already uses for its own
+// cloud/local transitions.
+class ConnectedNotifier extends StateNotifier<bool> {
+  final Ref ref;
+  Timer? _offlineTimer;
+  StreamSubscription<bool>? _sub;
+
+  ConnectedNotifier(this.ref) : super(false) {
+    _sub = ref.read(deviceServiceProvider).connectedStream.listen(_onEvent);
+    ref.listen(deviceServiceProvider, (prev, next) {
+      _sub?.cancel();
+      _sub = next.connectedStream.listen(_onEvent);
+    });
+  }
+
+  void _onEvent(bool connected) {
+    if (connected) {
+      _offlineTimer?.cancel();
+      state = true;
+    } else {
+      _offlineTimer?.cancel();
+      _offlineTimer = Timer(const Duration(seconds: 6), () {
+        state = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _offlineTimer?.cancel();
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
+final deviceConnectedProvider =
+    StateNotifierProvider<ConnectedNotifier, bool>((ref) => ConnectedNotifier(ref));
 
 final deviceStatusProvider = StreamProvider<DeviceStatus>((ref) {
   return ref.watch(deviceServiceProvider).statusStream;
@@ -80,3 +121,34 @@ final cyclesProvider = StreamProvider<List<Cycle>>((ref) {
 final historyProvider = StreamProvider<List<HistoryEntry>>((ref) {
   return ref.watch(deviceServiceProvider).historyStream;
 });
+
+// Dark/light mode -- defaults to following the system setting, persisted
+// once the user picks something explicit. Same StateNotifier + prefs
+// pattern as transportModeProvider above.
+class ThemeModeNotifier extends StateNotifier<ThemeMode> {
+  ThemeModeNotifier() : super(ThemeMode.system) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_themePrefsKey);
+    if (saved == 'light') state = ThemeMode.light;
+    if (saved == 'dark') state = ThemeMode.dark;
+  }
+
+  Future<void> setMode(ThemeMode mode) async {
+    state = mode;
+    final prefs = await SharedPreferences.getInstance();
+    final str = switch (mode) {
+      ThemeMode.light  => 'light',
+      ThemeMode.dark   => 'dark',
+      ThemeMode.system => 'system',
+    };
+    await prefs.setString(_themePrefsKey, str);
+  }
+}
+
+final themeModeProvider =
+    StateNotifierProvider<ThemeModeNotifier, ThemeMode>(
+        (ref) => ThemeModeNotifier());

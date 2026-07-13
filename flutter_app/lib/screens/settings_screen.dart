@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
 import 'local_setup_screen.dart';
+import '../utils/time_format.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -9,23 +10,31 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statusAsync = ref.watch(deviceStatusProvider);
-    final connectedAsync = ref.watch(deviceConnectedProvider);
+    final isConnected = ref.watch(deviceConnectedProvider);
     final mode = ref.watch(transportModeProvider);
-    final isConnected = connectedAsync.maybeWhen(data: (c) => c, orElse: () => false);
+    final themeMode = ref.watch(themeModeProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Settings',
-            style: TextStyle(color: Colors.black87,
+        title: Text('Settings',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+
+          // App branding header.
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.asset('assets/images/logo.jpeg',
+                  width: 160, height: 160, fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Device status card -- reflects whichever transport is active,
           // not specifically MQTT (that's what deviceConnectedProvider is for).
@@ -57,7 +66,7 @@ class SettingsScreen extends ConsumerWidget {
                       Text('${s.deviceId} • Firmware ${s.firmware}',
                           style: const TextStyle(
                               color: Colors.grey, fontSize: 12)),
-                      Text('WiFi: ${s.wifiRssi} dBm • RTC: ${s.rtcDate} ${s.rtcTime}',
+                      Text('WiFi: ${s.wifiRssi} dBm • RTC: ${s.rtcDate} ${formatTime12FromString(s.rtcTime)}',
                           style: const TextStyle(
                               color: Colors.grey, fontSize: 12)),
                     ],
@@ -98,6 +107,74 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           const SizedBox(height: 16),
 
+          // Test SoftAP behavior on demand without needing to actually
+          // turn off the router — sends via whichever transport is
+          // currently active (this only makes sense when currently on
+          // Cloud, since forcing local mode while already local is a
+          // no-op, but it's harmless either way).
+          _SettingsSection(title: 'SoftAP Testing', items: [
+            _SettingsTile(
+              icon: Icons.wifi_off,
+              color: const Color(0xFFFF9800),
+              title: 'Force Local Mode',
+              subtitle: 'Test SoftAP without turning off your router',
+              onTap: () {
+                final connected = ref.read(deviceConnectedProvider);
+                ref.read(deviceServiceProvider).sendRaw({'cmd': 'force_local_mode'});
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+                  connected ? 'Command sent' : 'Not connected — command could not be sent')));
+              },
+            ),
+            _SettingsTile(
+              icon: Icons.wifi,
+              color: const Color(0xFF4CAF50),
+              title: 'Resume Normal Auto-Reconnect',
+              subtitle: 'Let the device reconnect to WiFi normally again',
+              onTap: () {
+                final connected = ref.read(deviceConnectedProvider);
+                ref.read(deviceServiceProvider).sendRaw({'cmd': 'resume_auto_mode'});
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+                  connected ? 'Command sent' : 'Not connected — command could not be sent')));
+              },
+            ),
+          ]),
+          const SizedBox(height: 16),
+
+          // Appearance -- light/dark/system, persisted across app restarts.
+          _SettingsSection(title: 'Appearance', items: [
+            _ModeTile(
+              icon: Icons.light_mode,
+              color: const Color(0xFFFF9800),
+              title: 'Light',
+              subtitle: 'Always use light theme',
+              selected: themeMode == ThemeMode.light,
+              onTap: () async {
+                await ref.read(themeModeProvider.notifier).setMode(ThemeMode.light);
+              },
+            ),
+            _ModeTile(
+              icon: Icons.dark_mode,
+              color: const Color(0xFF3F51B5),
+              title: 'Dark',
+              subtitle: 'Always use dark theme',
+              selected: themeMode == ThemeMode.dark,
+              onTap: () async {
+                await ref.read(themeModeProvider.notifier).setMode(ThemeMode.dark);
+              },
+            ),
+            _ModeTile(
+              icon: Icons.brightness_auto,
+              color: Colors.grey,
+              title: 'System',
+              subtitle: 'Match your phone\'s setting',
+              selected: themeMode == ThemeMode.system,
+              onTap: () async {
+                await ref.read(themeModeProvider.notifier).setMode(ThemeMode.system);
+              },
+            ),
+          ]),
+          const SizedBox(height: 16),
+
           // Local device setup (formerly BLE) -- WiFi/MQTT provisioning,
           // RTC sync, calibration, relay test, factory reset. Always uses
           // the local transport regardless of the mode switch above, since
@@ -117,23 +194,19 @@ class SettingsScreen extends ConsumerWidget {
 
           // Connection info
           _SettingsSection(title: 'Connection Info', items: [
-            _InfoTile(
-              icon: Icons.cloud,
-              color: const Color(0xFF4CAF50),
-              title: 'MQTT Broker',
-              value: 'mqtt.grty.co.in:1883',
-            ),
-            _InfoTile(
-              icon: Icons.wifi_tethering,
-              color: const Color(0xFF2196F3),
-              title: 'Local Device Address',
-              value: '192.168.4.1',
-            ),
-            _InfoTile(
-              icon: Icons.devices,
-              color: const Color(0xFF9C27B0),
-              title: 'Device ID',
-              value: 'SWC_001',
+            statusAsync.maybeWhen(
+              data: (s) => _InfoTile(
+                icon: Icons.devices,
+                color: const Color(0xFF9C27B0),
+                title: 'Device ID',
+                value: s.deviceId.isEmpty ? '—' : s.deviceId,
+              ),
+              orElse: () => const _InfoTile(
+                icon: Icons.devices,
+                color: Color(0xFF9C27B0),
+                title: 'Device ID',
+                value: '—',
+              ),
             ),
             statusAsync.maybeWhen(
               data: (s) => _InfoTile(
@@ -180,13 +253,13 @@ class _SettingsSection extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text(title.toUpperCase(),
-            style: const TextStyle(color: Colors.grey,
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 11, fontWeight: FontWeight.w600,
                 letterSpacing: 0.5)),
       ),
       Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
               blurRadius: 8, offset: const Offset(0, 2))],
@@ -273,6 +346,6 @@ class _InfoTile extends StatelessWidget {
     title: Text(title,
         style: const TextStyle(fontWeight: FontWeight.w500)),
     trailing: Text(value,
-        style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
   );
 }

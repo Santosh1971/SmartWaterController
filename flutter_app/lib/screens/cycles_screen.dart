@@ -15,16 +15,20 @@ class CyclesScreen extends ConsumerStatefulWidget {
 }
 
 class _CyclesScreenState extends ConsumerState<CyclesScreen> {
-  // Local cycles list — updated from cache, then MQTT + local edits
+  // Local cycles list — updated from cache, then device push + local edits
   List<Cycle> _cycles = [];
   bool _loading = true;
+  bool _didInitialRequest = false;
 
   @override
   void initState() {
     super.initState();
     _loadFromCache();
-    _requestCycles();
-    // Listen to cycles stream
+    // NOTE: no eager _requestCycles() here anymore — with all screens now
+    // built at once (IndexedStack), this used to fire before the
+    // connection was actually established and got silently dropped, with
+    // nothing to retry it. See the ref.listen in build() instead, which
+    // reacts to the connection actually coming up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(deviceServiceProvider).cyclesStream.listen((cycles) {
         if (mounted) setState(() { _cycles = cycles; _loading = false; });
@@ -91,16 +95,36 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     ref.read(deviceServiceProvider).setCycles(updated);
   }
 
+  void _deleteCycle(int index) {
+    final updated = List<Cycle>.from(_cycles)..removeAt(index);
+    setState(() => _cycles = updated);
+    _saveToCache(updated);
+    ref.read(deviceServiceProvider).setCycles(updated);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final connected = ref.watch(deviceConnectedProvider);
+
+    // Re-request cycles the moment the connection is (re)established —
+    // covers first launch, reconnects after a transport switch, and
+    // WiFi-drop/fallback recovery. Same pattern as the Dashboard screen.
+    ref.listen(deviceConnectedProvider, (prev, next) {
+      final wasConnected = prev ?? false;
+      if (next && !wasConnected) _requestCycles();
+    });
+    if (!_didInitialRequest && connected) {
+      _didInitialRequest = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _requestCycles());
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        leading: const Icon(Icons.menu, color: Colors.black87),
-        title: const Text('Cycles',
-            style: TextStyle(color: Colors.black87,
+        leading: null,
+        automaticallyImplyLeading: false,
+        title: Text('Cycles',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
@@ -116,12 +140,12 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: Column(
+          ? Center(child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 CircularProgressIndicator(color: Color(0xFF2196F3)),
                 SizedBox(height: 16),
-                Text('Loading cycles...', style: TextStyle(color: Colors.grey)),
+                Text('Loading cycles...', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ]))
           : _cycles.isEmpty
               ? _buildEmpty()
@@ -133,11 +157,11 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       const Icon(Icons.loop, size: 64, color: Colors.grey),
       const SizedBox(height: 16),
-      const Text('No cycles configured',
-          style: TextStyle(color: Colors.grey, fontSize: 16)),
+      Text('No cycles configured',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 16)),
       const SizedBox(height: 8),
-      const Text('Tap + to add your first watering cycle',
-          style: TextStyle(color: Colors.grey, fontSize: 13)),
+      Text('Tap + to add your first watering cycle',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
       const SizedBox(height: 24),
       ElevatedButton.icon(
         onPressed: () => _openAddCycle(),
@@ -157,11 +181,38 @@ class _CyclesScreenState extends ConsumerState<CyclesScreen> {
     child: ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _cycles.length,
-      itemBuilder: (_, i) => _CycleTile(
-        cycle: _cycles[i],
-        index: i + 1,
-        onTap: () => _openAddCycle(cycle: _cycles[i]),
-        onToggle: (val) => _toggleCycle(i, val),
+      itemBuilder: (_, i) => Dismissible(
+        key: ValueKey(_cycles[i].id),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.delete, color: Colors.white),
+        ),
+        confirmDismiss: (_) => showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Cycle?'),
+            content: Text('Delete "${_cycles[i].name.isEmpty ? "Cycle ${i + 1}" : _cycles[i].name}"? This cannot be undone.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Delete', style: TextStyle(color: Colors.red))),
+            ],
+          ),
+        ).then((confirmed) => confirmed ?? false),
+        onDismissed: (_) => _deleteCycle(i),
+        child: _CycleTile(
+          cycle: _cycles[i],
+          index: i + 1,
+          onTap: () => _openAddCycle(cycle: _cycles[i]),
+          onToggle: (val) => _toggleCycle(i, val),
+        ),
       ),
     ),
   );
@@ -186,7 +237,7 @@ class _CycleTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
             blurRadius: 8, offset: const Offset(0, 2))],
@@ -228,10 +279,10 @@ class _CycleTile extends StatelessWidget {
             const Icon(Icons.access_time, size: 14, color: Colors.grey),
             const SizedBox(width: 4),
             Text(cycle.startTimeStr,
-                style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(width: 8),
-            const Text('Everyday',
-                style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text('Everyday',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
           ]),
           const SizedBox(height: 4),
           Row(children: [

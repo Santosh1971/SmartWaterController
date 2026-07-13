@@ -13,6 +13,7 @@ class DeviceStatus {
   final int cycleId;
   final double litersDelivered;
   final String startedBy;
+  final int cycleStartUnix; // 0 if no cycle active/ever run
 
   DeviceStatus({
     required this.deviceId,
@@ -29,7 +30,17 @@ class DeviceStatus {
     required this.cycleId,
     required this.litersDelivered,
     required this.startedBy,
+    required this.cycleStartUnix,
   });
+
+  // Local (phone) time the current cycle started, or null if none active.
+  // Firmware's RTC is IST wall-clock stored as a unix value (not true UTC
+  // — see the firmware's RTC comments), so this is parsed the same way:
+  // treat the epoch value's calendar/clock fields as already being IST,
+  // don't apply an additional timezone shift on top.
+  DateTime? get cycleStartTime => (cycleActive && cycleStartUnix > 0)
+      ? DateTime.fromMillisecondsSinceEpoch(cycleStartUnix * 1000, isUtc: true)
+      : null;
 
   factory DeviceStatus.fromJson(Map<String, dynamic> j) => DeviceStatus(
         deviceId:        j['device_id']        ?? '',
@@ -46,6 +57,7 @@ class DeviceStatus {
         cycleId:         (j['cycle_id']         ?? 0) as int,
         litersDelivered: (j['liters_delivered'] ?? 0).toDouble(),
         startedBy:       j['started_by']        ?? '',
+        cycleStartUnix:  (j['cycle_start_unix'] ?? 0) as int,
       );
 
   static DeviceStatus empty() => DeviceStatus(
@@ -53,6 +65,6 @@ class DeviceStatus {
         rtcTime: '--:--', rtcDate: '--/--/----', rtcSet: false,
         wifiRssi: 0, wifiConnected: false, mqttConnected: false,
         cycleActive: false, cyclePaused: false, cycleId: 0,
-        litersDelivered: 0.0, startedBy: '',
+        litersDelivered: 0.0, startedBy: '', cycleStartUnix: 0,
       );
 }

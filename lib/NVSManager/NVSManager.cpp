@@ -146,20 +146,38 @@ void NVSManager::clearRunningState() {
 }
 
 // ---------- History ----------
+// All four methods below share one packed blob (key "history") holding
+// the full HISTORY_MAX_ENTRIES-entry circular buffer as raw bytes,
+// instead of the previous design (one NVS key per entry, "h_0".."h_199").
+// That design was the actual root cause of the NVS exhaustion seen in
+// testing: 200 separate keys, each carrying its own NVS bookkeeping
+// overhead on top of the JSON string payload, could exceed a small NVS
+// partition well before the data itself did. One blob write has a single
+// entry's worth of that overhead, regardless of how many logical history
+// records it holds.
+
+void NVSManager::_loadHistoryBlob() {
+    size_t expected = sizeof(_historyBuf);
+    if (_prefs.getBytesLength("history") == expected) {
+        _prefs.getBytes("history", _historyBuf, expected);
+    } else {
+        // First-ever boot (no blob yet) or a size mismatch (e.g.
+        // HISTORY_MAX_ENTRIES changed) — start from a clean, zeroed buffer
+        // rather than risk reading garbage/misaligned data.
+        memset(_historyBuf, 0, expected);
+    }
+}
+
+void NVSManager::_saveHistoryBlob() {
+    _prefs.putBytes("history", _historyBuf, sizeof(_historyBuf));
+}
+
 void NVSManager::addHistoryEntry(const HistoryEntry& entry) {
     _prefs.begin(NVS_NAMESPACE, false);
     uint8_t count = _prefs.getUChar("hist_count", 0);
-    String key    = "h_" + String(count % HISTORY_MAX_ENTRIES);
-    JsonDocument doc;
-    doc["ts"]     = entry.timestamp;
-    doc["cid"]    = entry.cycleId;
-    doc["name"]   = entry.cycleName;
-    doc["mode"]   = (int)entry.mode;
-    doc["liters"] = entry.litersDelivered;
-    doc["dur"]    = entry.durationSeconds;
-    doc["status"] = entry.status;
-    String out; serializeJson(doc, out);
-    _prefs.putString(key.c_str(), out);
+    _loadHistoryBlob();
+    _historyBuf[count % HISTORY_MAX_ENTRIES] = entry;
+    _saveHistoryBlob();
     _prefs.putUChar("hist_count", count + 1);
     _prefs.end();
 }
@@ -177,22 +195,13 @@ uint8_t NVSManager::getHistoryInRange(HistoryEntry* entries, uint8_t maxCount,
     uint8_t total     = _prefs.getUChar("hist_count", 0);
     uint8_t available = min(total, (uint8_t)HISTORY_MAX_ENTRIES);
     uint8_t start      = (total > HISTORY_MAX_ENTRIES) ? total % HISTORY_MAX_ENTRIES : 0;
+    _loadHistoryBlob();
     uint8_t matched = 0;
     for (uint8_t i = 0; i < available && matched < maxCount; i++) {
         uint8_t idx = (start + i) % HISTORY_MAX_ENTRIES;
-        String key  = "h_" + String(idx);
-        String json = _prefs.getString(key.c_str(), "{}");
-        JsonDocument doc;
-        if (deserializeJson(doc, json) != DeserializationError::Ok) continue;
-        uint32_t ts = doc["ts"];
-        if (ts < fromTs || ts > toTs) continue;
-        entries[matched].timestamp       = ts;
-        entries[matched].cycleId         = doc["cid"];
-        strlcpy(entries[matched].cycleName, doc["name"] | "", 32);
-        entries[matched].mode            = (OperationMode)(int)doc["mode"];
-        entries[matched].litersDelivered = doc["liters"];
-        entries[matched].durationSeconds = doc["dur"];
-        strlcpy(entries[matched].status, doc["status"] | "", 16);
+        const HistoryEntry& e = _historyBuf[idx];
+        if (e.timestamp < fromTs || e.timestamp > toTs) continue;
+        entries[matched] = e;
         matched++;
     }
     _prefs.end();
@@ -204,19 +213,10 @@ uint8_t NVSManager::getHistory(HistoryEntry* entries, uint8_t maxCount) {
     uint8_t total = _prefs.getUChar("hist_count", 0);
     uint8_t fetch = min(total, maxCount);
     uint8_t start = (total > HISTORY_MAX_ENTRIES) ? total % HISTORY_MAX_ENTRIES : 0;
+    _loadHistoryBlob();
     for (uint8_t i = 0; i < fetch; i++) {
         uint8_t idx = (start + i) % HISTORY_MAX_ENTRIES;
-        String key  = "h_" + String(idx);
-        String json = _prefs.getString(key.c_str(), "{}");
-        JsonDocument doc;
-        if (deserializeJson(doc, json) != DeserializationError::Ok) continue;
-        entries[i].timestamp       = doc["ts"];
-        entries[i].cycleId         = doc["cid"];
-        strlcpy(entries[i].cycleName, doc["name"] | "", 32);
-        entries[i].mode            = (OperationMode)(int)doc["mode"];
-        entries[i].litersDelivered = doc["liters"];
-        entries[i].durationSeconds = doc["dur"];
-        strlcpy(entries[i].status, doc["status"] | "", 16);
+        entries[i] = _historyBuf[idx];
     }
     _prefs.end();
     return fetch;

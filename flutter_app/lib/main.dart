@@ -10,17 +10,51 @@ import 'providers/providers.dart';
 void main() {
   runApp(const ProviderScope(child: SWCApp()));
 }
-class SWCApp extends StatelessWidget {
+
+class SWCApp extends ConsumerWidget {
   const SWCApp({super.key});
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
-      title: 'Smart Water Controller',
+      title: 'SWC',
       debugShowCheckedModeBanner: false,
+      themeMode: themeMode,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF1565C0),
           brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF5F6FA),
+        cardColor: Colors.white,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+          elevation: 0,
+        ),
+        useMaterial3: true,
+        cardTheme: const CardThemeData(
+          elevation: 2,
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        ),
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1565C0),
+          brightness: Brightness.dark,
+        ),
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        // Real dark surface for cards now — every card/container
+        // background across the app reads Theme.of(context).cardColor
+        // instead of a hardcoded white, and text reads
+        // Theme.of(context).colorScheme.onSurface/onSurfaceVariant
+        // instead of a hardcoded dark color, so both sides of the
+        // contrast now actually adapt together.
+        cardColor: const Color(0xFF1E1E1E),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1E1E1E),
+          foregroundColor: Colors.white,
+          elevation: 0,
         ),
         useMaterial3: true,
         cardTheme: const CardThemeData(

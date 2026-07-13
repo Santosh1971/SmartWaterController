@@ -68,17 +68,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final filtered = _filterEntries(_entries);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Colors.black87),
-        title: const Text('History',
-            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+        leading: BackButton(color: Theme.of(context).colorScheme.onSurface),
+        title: Text('History',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600)),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.show_chart, color: Colors.black87),
+            icon: Icon(Icons.show_chart, color: Theme.of(context).colorScheme.onSurface),
             tooltip: 'Usage trend',
             onPressed: () {
               final now = DateTime.now();
@@ -92,7 +90,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.calendar_today, color: Colors.black87),
+            icon: Icon(Icons.calendar_today, color: Theme.of(context).colorScheme.onSurface),
             onPressed: () async {
               final picked = await showDatePicker(
                 context: context,
@@ -107,7 +105,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       ),
       body: Column(children: [
         Container(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Row(children: [
             _FilterTab('All',    selected: _filter == 'All',
@@ -121,7 +119,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           ]),
         ),
         Container(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(children: [
             IconButton(
@@ -159,10 +157,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           Builder(builder: (_) {
             final totalLiters = filtered.fold<double>(
                 0, (sum, e) => sum + e.litersDelivered);
-            final totalCycles = filtered
-                .where((e) => e.status != 'manual').length;
+            // Was always counting non-manual entries regardless of which
+            // filter tab was active — on the Manual tab, `filtered`
+            // already contains ONLY manual entries, so re-filtering for
+            // "status != manual" within that always produced ~zero. This
+            // should just be how many entries are actually shown.
+            final totalCycles = filtered.length;
             return Container(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               padding: const EdgeInsets.all(16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -193,12 +195,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     }).toList();
   }
 
-  Widget _buildEmpty() => const Center(
+  Widget _buildEmpty() => Center(
     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       Icon(Icons.history, size: 64, color: Colors.grey),
       SizedBox(height: 16),
       Text('No history for this date',
-          style: TextStyle(color: Colors.grey, fontSize: 16)),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 16)),
     ]),
   );
 
@@ -255,7 +257,7 @@ class _HistoryTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04),
             blurRadius: 6, offset: const Offset(0, 2))],
@@ -264,7 +266,7 @@ class _HistoryTile extends StatelessWidget {
         SizedBox(
           width: 60,
           child: Text(DateFormat('hh:mm a').format(entry.dateTime),
-              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
         ),
         Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -283,7 +285,7 @@ class _HistoryTile extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.bold,
                   color: Color(0xFF2196F3))),
           Text(entry.durationStr,
-              style: const TextStyle(color: Colors.grey, fontSize: 11)),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11)),
         ]),
       ]),
     );
@@ -297,7 +299,7 @@ class _TotalItem extends StatelessWidget {
                     required this.color});
   @override
   Widget build(BuildContext context) => Column(children: [
-    Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+    Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12)),
     Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold,
         fontSize: 18)),
   ]);

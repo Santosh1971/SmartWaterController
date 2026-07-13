@@ -28,5 +28,10 @@ abstract class DeviceService {
   void getCycles();
   void setCycles(List<Cycle> cycles);
 
+  // Escape hatch for commands not part of the typed interface above (e.g.
+  // force_local_mode) — works the same way regardless of which transport
+  // is currently active.
+  void sendRaw(Map<String, dynamic> payload);
+
   void dispose();
 }

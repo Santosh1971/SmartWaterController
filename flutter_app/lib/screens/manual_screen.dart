@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/providers.dart';
+import '../utils/time_format.dart';
+import '../widgets/pump_icon.dart';
 
 class ManualScreen extends ConsumerStatefulWidget {
   const ManualScreen({super.key});
@@ -25,13 +27,11 @@ class _ManualScreenState extends ConsumerState<ManualScreen> {
         data: (s) => s.pumpOn, orElse: () => false);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Colors.black87),
-        title: const Text('Manual Control',
-            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+        leading: BackButton(color: Theme.of(context).colorScheme.onSurface),
+        title: Text('Manual Control',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: ListView(
@@ -41,18 +41,17 @@ class _ManualScreenState extends ConsumerState<ManualScreen> {
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
                   blurRadius: 8, offset: const Offset(0, 2))],
             ),
             child: Column(children: [
-              Icon(Icons.settings_input_component,
-                  size: 100,
+              PumpIcon(size: 100, isOn: pumpOn,
                   color: pumpOn ? const Color(0xFFFF9800) : Colors.grey.shade400),
               const SizedBox(height: 16),
-              const Text('PUMP IS',
-                  style: TextStyle(color: Colors.grey, fontSize: 16)),
+              Text('PUMP IS',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 16)),
               Text(pumpOn ? 'ON' : 'OFF',
                   style: TextStyle(
                     fontSize: 32, fontWeight: FontWeight.bold,
@@ -60,8 +59,8 @@ class _ManualScreenState extends ConsumerState<ManualScreen> {
               if (pumpOn) ...[
                 const SizedBox(height: 4),
                 statusAsync.maybeWhen(
-                  data: (s) => Text('Since ${s.rtcTime}',
-                      style: const TextStyle(color: Colors.grey)),
+                  data: (s) => Text('Since ${formatTime12FromString(s.rtcTime)}',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   orElse: () => const SizedBox(),
                 ),
               ],
@@ -109,21 +108,21 @@ class _ManualScreenState extends ConsumerState<ManualScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
                   blurRadius: 8, offset: const Offset(0, 2))],
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Manual Water (Optional)',
-                  style: TextStyle(color: Colors.grey, fontSize: 13)),
+              Text('Manual Water (Optional)',
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
               const SizedBox(height: 8),
               TextField(
                 controller: _litersController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
-                  suffix: const Text('Liters',
-                      style: TextStyle(color: Colors.grey)),
+                  suffix: Text('Liters',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8)),
                   contentPadding: const EdgeInsets.symmetric(

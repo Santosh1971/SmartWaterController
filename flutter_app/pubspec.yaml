@@ -1,5 +1,5 @@
 name: smart_water_controller
-description: Smart Water Controller — BLE provisioning and MQTT monitoring
+description: Smart Water Controller — hybrid SoftAP/MQTT irrigation control
 publish_to: none
 version: 1.0.0+1
 
@@ -35,3 +35,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/logo.jpeg
