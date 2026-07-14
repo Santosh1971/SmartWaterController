@@ -9,17 +9,15 @@
 class MQTTHandler {
 public:
     // broker/user/pass are copied internally, so caller's buffers can go out of scope after this call.
-    // deviceId is used to build the MQTT client ID and all topic strings at
-    // runtime. NOTE: intentionally still the fixed base "SWC_001" here (see
-    // main.cpp's mqtt.begin() call), NOT the MAC-suffixed per-device ID —
-    // the Flutter app hardcodes 'swc/SWC_001/...' for its own MQTT
-    // subscriptions, so topics must stay on that fixed base or the app
-    // would silently stop receiving anything over Cloud mode. The
-    // MAC-suffixed ID is used elsewhere (SoftAP name, the display-only
-    // device_id status field) where there's no such compatibility
-    // constraint.
+    // macSuffix (last 4 chars of the device's MAC-derived ID) scopes the
+    // MQTT client ID and every topic to THIS device specifically — e.g.
+    // "swc/SWC_001/9E74/status". Previously topics were shared across
+    // every physical device ("swc/SWC_001/status" for all of them),
+    // which meant with more than one device in Cloud mode simultaneously,
+    // a command meant for one would go to all of them, and their status
+    // updates would overwrite each other on the same retained topic.
     void begin(const char* broker, uint16_t port, const char* user, const char* pass,
-               const String& deviceId);
+               const String& macSuffix);
     void loop();
     bool isConnected();
 
@@ -27,6 +25,12 @@ public:
     void publishActiveCycle(const String& json);
     void publishCycles(const String& json);
     bool publishHistory(const String& json);
+
+    // Raw PubSubClient connection-state code, for diagnosing a publish
+    // failure that isn't accompanied by any visible reconnect (state() is
+    // more specific than just connected()/not — e.g. distinguishes a
+    // clean disconnect from a timeout from a protocol-level rejection).
+    int state();
 
     // Command callbacks — wired from main.cpp
     std::function<void(const String& cmd, const JsonObject& payload)> onCommand;

@@ -86,6 +86,24 @@ bool NVSManager::loadWiFi(char* ssid, char* pass) {
     return true;
 }
 
+// ---------- Forced local mode ----------
+// Persists across power cycles so a deliberate force_local_mode test
+// (Settings -> SoftAP Testing in the app) survives a reboot rather than
+// silently reverting to normal auto-reconnect the moment power is lost —
+// previously this was only an in-RAM flag.
+void NVSManager::saveForcedLocalMode(bool forced) {
+    _prefs.begin(NVS_NAMESPACE, false);
+    _prefs.putBool("forced_local", forced);
+    _prefs.end();
+}
+
+bool NVSManager::loadForcedLocalMode() {
+    _prefs.begin(NVS_NAMESPACE, false);
+    bool forced = _prefs.getBool("forced_local", false);
+    _prefs.end();
+    return forced;
+}
+
 // ---------- MQTT ----------
 void NVSManager::saveMQTT(const char* broker, uint16_t port,
                            const char* user, const char* pass) {

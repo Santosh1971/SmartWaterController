@@ -13,6 +13,7 @@ class SettingsScreen extends ConsumerWidget {
     final isConnected = ref.watch(deviceConnectedProvider);
     final mode = ref.watch(transportModeProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final deviceSuffix = ref.watch(deviceSuffixProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -78,6 +79,23 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
 
+          // Which physical device this app talks to over Cloud/MQTT --
+          // shown right after the online/offline status since it directly
+          // explains why that status might say Offline (wrong/unset
+          // target device) before the user gets to Connection Mode.
+          _SettingsSection(title: 'Device Pairing', items: [
+            _SettingsTile(
+              icon: Icons.link,
+              color: const Color(0xFF1565C0),
+              title: 'Target Device (Cloud mode)',
+              subtitle: deviceSuffix.isEmpty
+                  ? 'Not set — Cloud mode won\'t reach any device'
+                  : 'Talking to device ending in $deviceSuffix',
+              onTap: () => _showDeviceSuffixDialog(context, ref, deviceSuffix),
+            ),
+          ]),
+          const SizedBox(height: 16),
+
           // Connection mode -- manual switch between the device's own
           // SoftAP (works with no internet) and the cloud/MQTT broker
           // (works over the internet once the device is provisioned).
@@ -107,11 +125,6 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           const SizedBox(height: 16),
 
-          // Test SoftAP behavior on demand without needing to actually
-          // turn off the router — sends via whichever transport is
-          // currently active (this only makes sense when currently on
-          // Cloud, since forcing local mode while already local is a
-          // no-op, but it's harmless either way).
           _SettingsSection(title: 'SoftAP Testing', items: [
             _SettingsTile(
               icon: Icons.wifi_off,
@@ -347,5 +360,39 @@ class _InfoTile extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w500)),
     trailing: Text(value,
         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
+  );
+}
+
+void _showDeviceSuffixDialog(BuildContext context, WidgetRef ref, String current) {
+  final ctrl = TextEditingController(text: current);
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Target Device'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text(
+          'Enter the last 4 characters of the device\'s ID — shown on '
+          'its SoftAP network name (SWC_001_XXXX) or in this app\'s '
+          'Device ID field while connected locally to that device.',
+          style: TextStyle(fontSize: 13)),
+        const SizedBox(height: 16),
+        TextField(
+          controller: ctrl,
+          maxLength: 4,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(labelText: 'Last 4 characters', counterText: ''),
+        ),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            ref.read(deviceSuffixProvider.notifier).setSuffix(ctrl.text.trim().toUpperCase());
+            Navigator.pop(ctx);
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
   );
 }

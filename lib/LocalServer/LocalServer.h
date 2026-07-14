@@ -28,6 +28,21 @@ public:
     bool isConnected();      // true if >=1 WS client attached
     int  stationCount();     // phones associated to our SoftAP, if it's up
 
+    // Proactively drops every WS client. cleanupClients() (called every
+    // loop() below) only enforces a max client count — it does NOT detect
+    // a client that's gone silently unresponsive (e.g. a phone that was
+    // attached to our SoftAP and then the STA link came back up and the
+    // app moved on to MQTT without ever cleanly closing that socket).
+    // That left a "zombie" client whose outgoing message queue just kept
+    // growing every status broadcast until it overflowed — seen in
+    // testing as a long stretch of "[/ws][1] Too many messages queued"
+    // warnings, and very likely the cause of the sluggishness reported
+    // in Cloud/MQTT mode specifically. Call this right when the STA link
+    // comes back up — any local WS client at that point is almost
+    // certainly stale, since real local usage would be over the SoftAP
+    // which is about to go away anyway.
+    void closeAllClients();
+
     void publishStatus(const String& json);
     void publishActiveCycle(const String& json);
     void publishCycles(const String& json);

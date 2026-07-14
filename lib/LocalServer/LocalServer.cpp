@@ -63,6 +63,14 @@ void LocalServer::loop() {
     _ws.cleanupClients();
 }
 
+void LocalServer::closeAllClients() {
+    if (_ws.count() > 0) {
+        Serial.printf("[LocalServer] Closing %d WS client(s) — STA reconnected, "
+                       "any local client at this point is stale\n", _ws.count());
+    }
+    _ws.closeAll();
+}
+
 bool LocalServer::isConnected()  { return _ws.count() > 0; }
 int  LocalServer::stationCount() { return WiFi.softAPgetStationNum(); }
 

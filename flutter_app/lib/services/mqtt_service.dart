@@ -9,14 +9,29 @@ import '../models/history_entry.dart';
 import '../models/cycle.dart';
 
 class MqttService implements DeviceService {
-  static const String _broker   = '87.76.191.157'; // mqtt.grty.co.in — no auth
-  static const int    _port     = 1883;
-  static const String _deviceId = 'SWC_001';
+  // Was hardcoded to the AlgoMomentum VPS IP (87.76.191.157) — a
+  // genuinely different, auth-required broker from what firmware
+  // actually defaults to. That mismatch meant the app and device could
+  // never rendezvous over Cloud mode even when both had real internet.
+  static const String _broker = 'mqtt.grty.co.in';
+  static const int    _port   = 1883;
 
-  static const String _topicStatus  = 'swc/$_deviceId/status';
-  static const String _topicCmd     = 'swc/$_deviceId/command';
-  static const String _topicHistory = 'swc/$_deviceId/history';
-  static const String _topicCycles  = 'swc/$_deviceId/cycles';
+  // Topics are now scoped to a specific physical device via its 4-char
+  // MAC suffix (entered by the user in Settings — see
+  // deviceSuffixProvider) — previously a fixed 'SWC_001' shared by every
+  // device, so with more than one device in Cloud mode, a command meant
+  // for one would reach all of them, and their retained status topics
+  // would overwrite each other.
+  final String deviceSuffix;
+  late final String _topicStatus, _topicCmd, _topicHistory, _topicCycles;
+
+  MqttService({required this.deviceSuffix}) {
+    final base = 'swc/SWC_001/$deviceSuffix';
+    _topicStatus  = '$base/status';
+    _topicCmd     = '$base/command';
+    _topicHistory = '$base/history';
+    _topicCycles  = '$base/cycles';
+  }
 
   MqttServerClient? _client;
   bool _isConnecting = false;

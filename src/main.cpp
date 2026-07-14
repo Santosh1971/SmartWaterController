@@ -30,6 +30,7 @@ enum ConnMode { CONN_UNKNOWN, CONN_CLOUD, CONN_LOCAL_FALLBACK };
 ConnMode connMode = CONN_UNKNOWN;
 String   apSsid;   // set once startLocalFallback() runs — MAC-suffixed, unique per device
 String   deviceId;  // computed once in setup() — same MAC-suffixed value used for apSsid
+String   macSuffix; // last 4 chars of deviceId — used to scope MQTT topics per-device
 // Set by the force_local_mode command — lets someone deliberately test
 // SoftAP mode (e.g. "how does this behave locally?") without needing to
 // actually turn off their router. While true, the normal automatic
@@ -198,6 +199,7 @@ String computeDeviceId() {
 // locally.
 void startLocalFallback() {
     WiFi.mode(WIFI_AP_STA);
+    WiFi.setSleep(false);
     apSsid = deviceId;
     WiFi.softAP(apSsid.c_str(), SOFTAP_PASSWORD);
     connMode = CONN_LOCAL_FALLBACK;
@@ -222,6 +224,7 @@ void pollBackgroundRetry() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("[WiFi] Reconnected — confirming stability before leaving fallback");
         retryState = RETRY_IDLE;
+        localServer.closeAllClients();
         // AP stays up here — updateConnMode() tears it down once the
         // connection has held for WIFI_STABLE_HOLD_MS, avoiding flapping
         // if the reconnect is itself flaky.
@@ -247,6 +250,7 @@ void updateConnMode() {
             Serial.println("[WiFi] Stable for 60s — leaving local fallback, dropping SoftAP");
             WiFi.softAPdisconnect(true);
             WiFi.mode(WIFI_STA);
+            WiFi.setSleep(false);
             onWiFiConnected();
         }
     } else {
@@ -362,7 +366,9 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
             o["status"] = rangeEntries[i].status;
         }
         String out; serializeJson(doc, out);
-        mqtt.publishHistory(out);
+        if (!mqtt.publishHistory(out))
+            Serial.printf("[MQTT] publishHistory gave up after 3 attempts (%d bytes, "
+                           "%d entries, final state=%d)\n", out.length(), count, mqtt.state());
         localServer.publishHistory(out);
         return out;
     }
@@ -383,7 +389,9 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
             o["status"] = entries[i].status;
         }
         String out; serializeJson(doc, out);
-        mqtt.publishHistory(out);
+        if (!mqtt.publishHistory(out))
+            Serial.printf("[MQTT] publishHistory gave up after 3 attempts (%d bytes, "
+                           "%d entries, final state=%d)\n", out.length(), count, mqtt.state());
         localServer.publishHistory(out);
         return out;
     }
@@ -461,9 +469,12 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
         // disconnects STA and enters fallback immediately (skipping the
         // normal 30s grace, since this is an explicit request, not a
         // detected drop), and suppresses auto-reconnect until told
-        // otherwise.
+        // otherwise. Persisted to NVS so this survives a power cycle too
+        // — previously an in-RAM-only flag meant a reboot silently
+        // reverted to normal behavior mid-test.
         Serial.println("[WiFi] force_local_mode — entering SoftAP on purpose");
         forcedLocalMode = true;
+        nvs.saveForcedLocalMode(true);
         WiFi.disconnect();
         if (connMode != CONN_LOCAL_FALLBACK) startLocalFallback();
         return "{\"msg\":\"forced into local mode\"}";
@@ -475,6 +486,7 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
         // next cycle (or immediately, since this resets the retry timer).
         Serial.println("[WiFi] resume_auto_mode — normal reconnect behavior restored");
         forcedLocalMode = false;
+        nvs.saveForcedLocalMode(false);
         lastWiFiRetry = millis() - WIFI_RETRY_INTERVAL_MS;
         return "{\"msg\":\"resuming normal auto reconnect\"}";
     }
@@ -527,9 +539,26 @@ void setup() {
     // begin(), and that task doesn't exist until WiFi.mode() has run once —
     // starting the local server first crashes with "Invalid mbox".
     WiFi.mode(WIFI_STA);
+    // Disable WiFi power-save (modem sleep). ESP32's default power-save
+    // behavior is a well-documented cause of periodic STA disconnects on
+    // many routers/APs (missed beacons while the radio sleeps) — a very
+    // strong match for the recurring ~60s reconnect-loop pattern seen
+    // repeatedly in testing, which never happened over SoftAP (no
+    // power-save involved there at all). This is the leading fix for
+    // that long-standing mystery.
+    WiFi.setSleep(false);
     deviceId = computeDeviceId();
+    macSuffix = deviceId.substring(deviceId.length() - 4);
     Serial.printf("[BOOT] Device ID: %s\n", deviceId.c_str());
-    if (tryConnectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
+
+    if (nvs.loadForcedLocalMode()) {
+        // A previous force_local_mode test is still active across this
+        // power cycle — go straight to SoftAP without even attempting
+        // STA, matching what the user explicitly asked for last time.
+        Serial.println("[BOOT] Forced local mode persisted — staying in SoftAP");
+        forcedLocalMode = true;
+        startLocalFallback();
+    } else if (tryConnectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
         onWiFiConnected();
     } else {
         Serial.println("[WiFi] Could not connect — starting local fallback (SoftAP)");
@@ -554,10 +583,10 @@ void setup() {
     uint16_t mqttPort;
     if (nvs.loadMQTT(mqttBroker, mqttPort, mqttUser, mqttPass) && strlen(mqttBroker) > 0) {
         Serial.printf("[MQTT] Using saved config: %s:%d\n", mqttBroker, mqttPort);
-        mqtt.begin(mqttBroker, mqttPort, mqttUser, mqttPass, DEVICE_ID);
+        mqtt.begin(mqttBroker, mqttPort, mqttUser, mqttPass, macSuffix);
     } else {
         Serial.println("[MQTT] No saved config — using Config.h defaults");
-        mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS, DEVICE_ID);
+        mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASS, macSuffix);
     }
     Serial.println("[BOOT] Setup complete");
 }

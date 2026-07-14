@@ -13,12 +13,43 @@ enum TransportMode { local, cloud }
 
 const _transportPrefsKey = 'transport_mode';
 const _themePrefsKey = 'theme_mode';
+const _deviceSuffixPrefsKey = 'device_suffix';
+
+// The 4-char MAC suffix identifying which physical device this app talks
+// to over Cloud/MQTT (see device_id shown in Settings, or the device's own
+// SoftAP name — both show the same suffix). Persisted so it survives app
+// restarts; defaults empty until the user sets it, since guessing wrong
+// would silently talk to a different device.
+class DeviceSuffixNotifier extends StateNotifier<String> {
+  DeviceSuffixNotifier() : super('') {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getString(_deviceSuffixPrefsKey) ?? '';
+  }
+
+  Future<void> setSuffix(String suffix) async {
+    state = suffix;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_deviceSuffixPrefsKey, suffix);
+  }
+}
+
+final deviceSuffixProvider =
+    StateNotifierProvider<DeviceSuffixNotifier, String>(
+        (ref) => DeviceSuffixNotifier());
 
 // Individual transports -- both always exist; only one is "active" at a
 // time per transportModeProvider, but keeping both alive means switching
 // doesn't lose any in-flight connection state.
+// Rebuilds (disposing the old instance, per ref.onDispose below) whenever
+// the target device suffix changes, so topics always match the currently
+// selected device rather than needing an app restart.
 final mqttServiceProvider = Provider<MqttService>((ref) {
-  final svc = MqttService();
+  final suffix = ref.watch(deviceSuffixProvider);
+  final svc = MqttService(deviceSuffix: suffix);
   ref.onDispose(() => svc.dispose());
   return svc;
 });

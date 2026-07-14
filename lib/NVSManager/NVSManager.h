@@ -52,6 +52,9 @@ public:
     // WiFi / MQTT credentials
     void saveWiFi(const char* ssid, const char* pass);
     bool loadWiFi(char* ssid, char* pass);
+
+    void saveForcedLocalMode(bool forced);
+    bool loadForcedLocalMode();
     void saveMQTT(const char* broker, uint16_t port, const char* user, const char* pass);
     bool loadMQTT(char* broker, uint16_t& port, char* user, char* pass);
 

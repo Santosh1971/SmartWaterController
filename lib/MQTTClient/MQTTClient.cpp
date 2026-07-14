@@ -16,28 +16,33 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void MQTTHandler::begin(const char* broker, uint16_t port, const char* user, const char* pass,
-                         const String& deviceId) {
+                         const String& macSuffix) {
     _instance = this;
     strlcpy(_broker, broker, sizeof(_broker));
     _port = port;
     strlcpy(_user, user, sizeof(_user));
     strlcpy(_pass, pass, sizeof(_pass));
 
-    // Topics built at runtime from the actual per-device ID now, instead
-    // of a fixed compile-time "swc/SWC_001/..." every unit shared.
-    _deviceId     = deviceId;
-    _topicStatus  = "swc/" + _deviceId + "/status";
-    _topicHistory = "swc/" + _deviceId + "/history";
-    _topicActive  = "swc/" + _deviceId + "/active_cycle";
-    _topicCycles  = "swc/" + _deviceId + "/cycles";
-    _topicCmd     = "swc/" + _deviceId + "/command";
+    // Topics now scoped per-device: "swc/SWC_001/<4-char MAC suffix>/...".
+    // Client ID uses the same suffix and is STABLE across reconnects
+    // (previously a fresh random hex value every single reconnect
+    // attempt — harmless for routing, but confusing in the logs, and
+    // not standard MQTT practice; a stable ID lets the broker track this
+    // device's session properly instead of treating every reconnect as
+    // an unrelated new client).
+    _deviceId     = String(DEVICE_ID) + "_" + macSuffix;
+    _topicStatus  = "swc/" DEVICE_ID "/" + macSuffix + "/status";
+    _topicHistory = "swc/" DEVICE_ID "/" + macSuffix + "/history";
+    _topicActive  = "swc/" DEVICE_ID "/" + macSuffix + "/active_cycle";
+    _topicCycles  = "swc/" DEVICE_ID "/" + macSuffix + "/cycles";
+    _topicCmd     = "swc/" DEVICE_ID "/" + macSuffix + "/command";
 
     _mqtt.setClient(_wifiClient);
     _mqtt.setServer(_broker, _port);
     _mqtt.setCallback(mqttCallback);
     _mqtt.setKeepAlive(30);
     _mqtt.setBufferSize(24576);  // room for a full month's history range payload (~150-200 entries)
-    Serial.printf("[MQTT] Configured — %s:%d (device %s)\n", _broker, _port, _deviceId.c_str());
+    Serial.printf("[MQTT] Configured — %s:%d (client %s)\n", _broker, _port, _deviceId.c_str());
 }
 
 void MQTTHandler::loop() {
@@ -54,11 +59,10 @@ void MQTTHandler::loop() {
 }
 
 void MQTTHandler::_reconnect() {
-    String clientId = _deviceId + "_" + String(random(0xffff), HEX);
-    Serial.printf("[MQTT] Connecting as %s...\n", clientId.c_str());
+    Serial.printf("[MQTT] Connecting as %s...\n", _deviceId.c_str());
     bool ok = (strlen(_user) > 0)
-              ? _mqtt.connect(clientId.c_str(), _user, _pass)
-              : _mqtt.connect(clientId.c_str());
+              ? _mqtt.connect(_deviceId.c_str(), _user, _pass)
+              : _mqtt.connect(_deviceId.c_str());
     if (ok) {
         Serial.println("[MQTT] Connected");
         _mqtt.subscribe(_topicCmd.c_str());
@@ -80,5 +84,18 @@ void MQTTHandler::publishCycles(const String& json) {
     _mqtt.publish(_topicCycles.c_str(), json.c_str(), true);
 }
 bool MQTTHandler::publishHistory(const String& json) {
-    return _mqtt.publish(_topicHistory.c_str(), json.c_str(), false);
+    // A single publish() failure isn't necessarily a dead connection —
+    // seen in testing to fail transiently even in clear steady-state
+    // operation (no reconnect anywhere nearby), so a short retry is a
+    // cheap, pragmatic mitigation regardless of the exact underlying
+    // cause. 3 attempts, 100ms apart.
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        if (_mqtt.publish(_topicHistory.c_str(), json.c_str(), false)) return true;
+        Serial.printf("[MQTT] publishHistory attempt %d/3 failed (state=%d)\n",
+                      attempt, _mqtt.state());
+        if (attempt < 3) delay(100);
+    }
+    return false;
 }
+
+int MQTTHandler::state() { return _mqtt.state(); }
