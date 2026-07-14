@@ -21,15 +21,13 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   DateTime _date = DateTime.now();
   List<HistoryEntry> _entries = [];
   bool _loading = true;
+  bool _didInitialRequest = false;
 
   @override
   void initState() {
     super.initState();
     _loadFromCache();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final now = DateTime.now();
-      ref.read(deviceServiceProvider)
-          .getHistoryRange(now.subtract(const Duration(days: 30)), now);
       ref.read(deviceServiceProvider).historyStream.listen((entries) {
         if (mounted) setState(() { _entries = entries; _loading = false; });
         _saveToCache(entries);
@@ -39,6 +37,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         if (mounted && _loading) setState(() => _loading = false);
       });
     });
+  }
+
+  void _requestHistory() {
+    final now = DateTime.now();
+    ref.read(deviceServiceProvider)
+        .getHistoryRange(now.subtract(const Duration(days: 30)), now);
   }
 
   Future<void> _loadFromCache() async {
@@ -66,6 +70,23 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filterEntries(_entries);
+
+    // Re-request history the moment the connection is (re)established —
+    // same fix already applied to Dashboard/Cycles for this exact bug:
+    // a one-shot initState() request can fire before the connection is
+    // actually ready (screens are all built upfront via IndexedStack),
+    // and previously never got retried — silently leaving History empty
+    // regardless of which transport was in use, since the bug was purely
+    // about request timing, not the transport itself.
+    final connected = ref.watch(deviceConnectedProvider);
+    ref.listen(deviceConnectedProvider, (prev, next) {
+      final wasConnected = prev ?? false;
+      if (next && !wasConnected) _requestHistory();
+    });
+    if (!_didInitialRequest && connected) {
+      _didInitialRequest = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _requestHistory());
+    }
 
     return Scaffold(
       appBar: AppBar(

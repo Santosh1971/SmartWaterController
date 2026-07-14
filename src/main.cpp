@@ -366,7 +366,12 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
             o["status"] = rangeEntries[i].status;
         }
         String out; serializeJson(doc, out);
-        if (!mqtt.publishHistory(out))
+        // Only worth attempting if actually connected — otherwise this is
+        // a guaranteed failure that still burns ~200ms in retry delays
+        // for nothing (seen in testing: every history request while in
+        // SoftAP mode was paying this cost even though no one's
+        // listening on MQTT at all in that state).
+        if (mqtt.isConnected() && !mqtt.publishHistory(out))
             Serial.printf("[MQTT] publishHistory gave up after 3 attempts (%d bytes, "
                            "%d entries, final state=%d)\n", out.length(), count, mqtt.state());
         localServer.publishHistory(out);
@@ -389,7 +394,7 @@ String handleCommand(const String& cmd, const JsonObject& payload) {
             o["status"] = entries[i].status;
         }
         String out; serializeJson(doc, out);
-        if (!mqtt.publishHistory(out))
+        if (mqtt.isConnected() && !mqtt.publishHistory(out))
             Serial.printf("[MQTT] publishHistory gave up after 3 attempts (%d bytes, "
                            "%d entries, final state=%d)\n", out.length(), count, mqtt.state());
         localServer.publishHistory(out);
