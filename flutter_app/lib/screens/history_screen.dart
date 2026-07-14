@@ -27,20 +27,31 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   void initState() {
     super.initState();
     _loadFromCache();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(deviceServiceProvider).historyStream.listen((entries) {
-        if (mounted) setState(() { _entries = entries; _loading = false; });
-        _saveToCache(entries);
-      });
-      // Timeout loading after 3 seconds — fall back to whatever we have (cache or empty)
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted && _loading) setState(() => _loading = false);
-      });
+    // Loading timeout — fall back to whatever we have (cache or empty)
+    // if nothing arrives within 3s. The actual data subscription now
+    // lives in build() via ref.listen(historyProvider, ...) — see there
+    // for why.
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && _loading) setState(() => _loading = false);
     });
   }
 
+  DateTime? _lastRequestAt;
+
   void _requestHistory() {
+    // Debounced — the actual cause of the out-of-order-response race
+    // was firing a fresh request on every single reconnect, and with
+    // reconnects sometimes happening in quick succession (WiFi
+    // flapping), more than one request could be in flight before the
+    // first response ever came back. Skipping a request that's within
+    // 5s of the last one makes that overlap very unlikely without
+    // needing to guess at which response is "newer" on the receiving
+    // end.
     final now = DateTime.now();
+    if (_lastRequestAt != null && now.difference(_lastRequestAt!) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastRequestAt = now;
     ref.read(deviceServiceProvider)
         .getHistoryRange(now.subtract(const Duration(days: 30)), now);
   }
@@ -79,6 +90,26 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     // regardless of which transport was in use, since the bug was purely
     // about request timing, not the transport itself.
     final connected = ref.watch(deviceConnectedProvider);
+
+    // THE actual fix for "History stuck in MQTT mode, catches up after
+    // switching to SoftAP": mqttServiceProvider rebuilds (a fresh
+    // MqttService instance) whenever deviceSuffixProvider changes — that's
+    // by design, for the per-device pairing feature. The old
+    // initState()-based `ref.read(deviceServiceProvider).historyStream
+    // .listen(...)` took a ONE-TIME snapshot of whichever instance
+    // existed at that moment and kept listening to it forever, even
+    // after it was replaced — so it silently stopped receiving anything
+    // new. Dashboard never had this problem because it uses
+    // ref.watch(historyProvider), which properly follows the current
+    // instance at all times. ref.listen() here does the same thing, just
+    // as a side effect (updating local state + cache) instead of a
+    // direct widget rebuild.
+    ref.listen(historyProvider, (prev, next) {
+      next.whenData((entries) {
+        if (mounted) setState(() { _entries = entries; _loading = false; });
+        _saveToCache(entries);
+      });
+    });
     ref.listen(deviceConnectedProvider, (prev, next) {
       final wasConnected = prev ?? false;
       if (next && !wasConnected) _requestHistory();
